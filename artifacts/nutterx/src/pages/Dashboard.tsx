@@ -257,6 +257,14 @@ export default function Dashboard() {
     r => (r as any).paymentRequired && (r as any).paymentStatus !== "paid"
   ) || [];
 
+  // Auto-prompt payment on first load if there's an unpaid completed request
+  useEffect(() => {
+    if (!requestsLoading && pendingPayments.length > 0 && !payingRequest) {
+      const unpaidCompleted = pendingPayments.find(r => r.status === "completed");
+      if (unpaidCompleted) setPayingRequest(unpaidCompleted);
+    }
+  }, [requestsLoading]);
+
   const stats = [
     { label: "Total",       value: requests?.length || 0,                                          color: "text-foreground",  bg: "bg-secondary/60" },
     { label: "Pending",     value: requests?.filter(r => r.status === "pending").length || 0,      color: "text-amber-400",   bg: "bg-amber-500/8" },
