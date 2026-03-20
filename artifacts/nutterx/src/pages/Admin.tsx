@@ -773,7 +773,7 @@ async function exportAsPNG(requests: any[]) {
   // ── Stats row (no payment totals) ────────────────────────────
   const statsData = [
     { label: "Total",    value: requests.length },
-    { label: "Active",   value: requests.filter((r: any) => r.status === "in_progress").length },
+    { label: "Active",   value: requests.filter((r: any) => r.status === "in_progress" || r.status === "completed").length },
     { label: "Done",     value: requests.filter((r: any) => r.status === "completed").length },
   ];
   const SW    = (LW - PAD * 2 - 6) / 3;
