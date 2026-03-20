@@ -271,12 +271,13 @@ function downloadMembershipCertificate(user: any, requests: any[]) {
   const W    = LW * S;
   const PAD  = 20;
 
-  const paidServices = (requests || []).filter(r => r.paymentStatus === "paid");
+  const allServices  = (requests || []);
+  const paidServices = allServices.filter((r: any) => r.paymentStatus === "paid");
   const totalPaid    = paidServices.reduce((sum: number, r: any) => sum + (r.paymentAmount || 0), 0);
 
-  const ROW_H    = 38;
+  const ROW_H    = 36;
   const HEADER_H = 170;
-  const TABLE_H  = 28 + paidServices.length * ROW_H + (paidServices.length === 0 ? 36 : 0);
+  const TABLE_H  = 28 + allServices.length * ROW_H + (allServices.length === 0 ? 36 : 0);
   const FOOTER_H = 100;
   const totalH   = HEADER_H + TABLE_H + FOOTER_H;
   const LH       = Math.max(totalH, 360);
@@ -391,17 +392,17 @@ function downloadMembershipCertificate(user: any, requests: any[]) {
   ctx.strokeStyle = GOLD_LIGHT; ctx.lineWidth = 0.8;
   ctx.beginPath(); ctx.moveTo(PAD, 156); ctx.lineTo(LW-PAD, 156); ctx.stroke();
 
-  // ── "PAID SERVICES" table label ───────────────
+  // ── "ACTIVE SERVICES" table label ───────────────
   ctx.fillStyle = TEXT_MID; ctx.font = "bold 8px sans-serif"; ctx.textAlign = "left";
-  ctx.fillText("PAID SERVICES", PAD + 4, 168);
+  ctx.fillText("ACTIVE SERVICES & DEADLINES", PAD + 4, 168);
 
   // ── Table header ──────────────────────────────
   const tableTop = HEADER_H;
-  const CW = LW - PAD * 2;
-  const C_NUM  = { x: PAD,       w: 20 };
-  const C_SVC  = { x: PAD + 20,  w: 160 };
-  const C_AMT  = { x: PAD + 180, w: 100 };
-  const C_DATE = { x: PAD + 280, w: CW - 280 };
+  const CW     = LW - PAD * 2;
+  const C_NUM    = { x: PAD,       w: 18 };
+  const C_SVC    = { x: PAD + 18,  w: 168 };
+  const C_STATUS = { x: PAD + 186, w: 80 };
+  const C_DATE   = { x: PAD + 266, w: CW - 266 };
 
   const thBg = ctx.createLinearGradient(0, tableTop, LW, tableTop);
   thBg.addColorStop(0, GOLD_DARK); thBg.addColorStop(0.5, GOLD_MID); thBg.addColorStop(1, GOLD_DARK);
@@ -410,38 +411,48 @@ function downloadMembershipCertificate(user: any, requests: any[]) {
 
   ctx.fillStyle = PARCHMENT; ctx.font = "bold 7.5px sans-serif";
   const heads: { label: string; cx: number; align: CanvasTextAlign }[] = [
-    { label: "#",       cx: C_NUM.x + C_NUM.w/2, align: "center" },
-    { label: "SERVICE", cx: C_SVC.x + 4,         align: "left"   },
-    { label: "AMOUNT",  cx: C_AMT.x + 4,         align: "left"   },
-    { label: "ENDS",    cx: C_DATE.x + 4,        align: "left"   },
+    { label: "#",        cx: C_NUM.x + C_NUM.w/2,       align: "center" },
+    { label: "SERVICE",  cx: C_SVC.x + 4,               align: "left"   },
+    { label: "STATUS",   cx: C_STATUS.x + 4,            align: "left"   },
+    { label: "DEADLINE", cx: C_DATE.x + 4,              align: "left"   },
   ];
   heads.forEach(h => { ctx.textAlign = h.align; ctx.fillText(h.label, h.cx, tableTop + 19); });
   ctx.textAlign = "left";
 
+  const fmtDate = (d: string | undefined) => {
+    if (!d) return "—";
+    return new Date(d).toLocaleDateString("en-KE", { day:"2-digit", month:"short", year:"numeric" });
+  };
+  const trunc = (s: string, n: number) => !s ? "—" : s.length > n ? s.slice(0,n)+"…" : s;
+  const statusLabel: Record<string, string> = {
+    pending:     "Pending",
+    in_progress: "Running",
+    completed:   "Completed",
+  };
+  const statusColor: Record<string, string> = {
+    pending:     "#b87000",
+    in_progress: "#1a5ca8",
+    completed:   "#0a7a30",
+  };
+
   // ── Service rows ──────────────────────────────
-  if (paidServices.length === 0) {
+  if (allServices.length === 0) {
     ctx.fillStyle = TEXT_MUTED; ctx.font = "8px sans-serif"; ctx.textAlign = "center";
-    ctx.fillText("No paid services yet", LCX, tableTop + 28 + 20);
+    ctx.fillText("No services yet", LCX, tableTop + 28 + 20);
     ctx.textAlign = "left";
   } else {
-    const fmtDate = (d: string | undefined) => {
-      if (!d) return "—";
-      return new Date(d).toLocaleDateString("en-KE", { day:"2-digit", month:"short", year:"numeric" });
-    };
-    const trunc = (s: string, n: number) => !s ? "—" : s.length > n ? s.slice(0,n)+"…" : s;
-
-    paidServices.forEach((r: any, i: number) => {
+    allServices.forEach((r: any, i: number) => {
       const rowY   = tableTop + 28 + i * ROW_H;
       const isEven = i % 2 === 0;
-      const MID    = rowY + ROW_H * 0.58;
+      const MID    = rowY + ROW_H * 0.60;
+      const status = r.status || "pending";
 
       ctx.fillStyle = isEven ? CREAM : ROW_ALT;
       ctx.fillRect(PAD, rowY, CW, ROW_H);
 
-      // Gold left accent bar (all paid)
-      const bar = ctx.createLinearGradient(0, rowY, 0, rowY + ROW_H);
-      bar.addColorStop(0, GOLD_BRIGHT); bar.addColorStop(1, GOLD_MID);
-      ctx.fillStyle = bar; ctx.fillRect(PAD, rowY, 3, ROW_H);
+      // Accent bar — color by status
+      const barColor = statusColor[status] || GOLD_MID;
+      ctx.fillStyle = barColor; ctx.fillRect(PAD, rowY, 3, ROW_H);
 
       ctx.strokeStyle = GOLD_LIGHT; ctx.lineWidth = 0.5;
       ctx.beginPath(); ctx.moveTo(PAD, rowY+ROW_H); ctx.lineTo(PAD+CW, rowY+ROW_H); ctx.stroke();
@@ -450,15 +461,15 @@ function downloadMembershipCertificate(user: any, requests: any[]) {
       ctx.fillStyle = GOLD_MID; ctx.font = "bold 8px sans-serif"; ctx.textAlign = "center";
       ctx.fillText(String(i+1), C_NUM.x + C_NUM.w/2, MID);
 
-      // Service name (2 lines if long)
+      // Service name
       ctx.fillStyle = TEXT_DARK; ctx.font = "bold 8px sans-serif"; ctx.textAlign = "left";
-      ctx.fillText(trunc(r.serviceName, 20), C_SVC.x + 4, MID);
+      ctx.fillText(trunc(r.serviceName, 22), C_SVC.x + 4, MID);
 
-      // Amount
-      ctx.fillStyle = "#0a5020"; ctx.font = "bold 8px sans-serif";
-      ctx.fillText(`KES ${(r.paymentAmount || 0).toLocaleString()} ✓`, C_AMT.x + 4, MID);
+      // Status label
+      ctx.fillStyle = barColor; ctx.font = "bold 7.5px sans-serif";
+      ctx.fillText(statusLabel[status] || status, C_STATUS.x + 4, MID);
 
-      // End date
+      // Deadline
       ctx.fillStyle = TEXT_MUTED; ctx.font = "7.5px sans-serif";
       ctx.fillText(fmtDate(r.subscriptionEndsAt), C_DATE.x + 4, MID);
 
@@ -467,13 +478,13 @@ function downloadMembershipCertificate(user: any, requests: any[]) {
   }
 
   // Table outer border
-  const tableBodyH = 28 + (paidServices.length > 0 ? paidServices.length * ROW_H : 36);
+  const tableBodyH = 28 + (allServices.length > 0 ? allServices.length * ROW_H : 36);
   ctx.strokeStyle = GOLD_MID; ctx.lineWidth = 1;
   ctx.beginPath(); ctx.roundRect(PAD, tableTop, CW, tableBodyH, [5,5,0,0]); ctx.stroke();
 
   // Column dividers
   ctx.strokeStyle = GOLD_LIGHT; ctx.lineWidth = 0.7;
-  [C_SVC.x, C_AMT.x, C_DATE.x].forEach(cx => {
+  [C_SVC.x, C_STATUS.x, C_DATE.x].forEach(cx => {
     ctx.beginPath(); ctx.moveTo(cx, tableTop); ctx.lineTo(cx, tableTop + tableBodyH); ctx.stroke();
   });
 
