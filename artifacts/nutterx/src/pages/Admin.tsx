@@ -287,6 +287,7 @@ function AddUserForm() {
 function SettingsForm() {
   const [consumerKey, setConsumerKey] = useState("");
   const [consumerSecret, setConsumerSecret] = useState("");
+  const [sandbox, setSandbox] = useState(false);
   const [showSecret, setShowSecret] = useState(false);
   const [loading, setLoading] = useState(false);
   const [fetching, setFetching] = useState(true);
@@ -300,6 +301,7 @@ function SettingsForm() {
       .then(data => {
         if (data.pesapal_consumer_key) setConsumerKey(data.pesapal_consumer_key);
         if (data.pesapal_consumer_secret) setConsumerSecret(data.pesapal_consumer_secret);
+        setSandbox(data.pesapal_sandbox === "true");
       })
       .catch(() => {})
       .finally(() => setFetching(false));
@@ -312,7 +314,11 @@ function SettingsForm() {
       const res = await fetch("/api/admin/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ pesapal_consumer_key: consumerKey, pesapal_consumer_secret: consumerSecret }),
+        body: JSON.stringify({
+          pesapal_consumer_key: consumerKey,
+          pesapal_consumer_secret: consumerSecret,
+          pesapal_sandbox: String(sandbox),
+        }),
       });
       if (!res.ok) throw new Error("Failed to save");
       setSaved(true);
@@ -343,6 +349,20 @@ function SettingsForm() {
       <div className="max-w-md space-y-4">
         <div className="p-4 bg-amber-500/5 border border-amber-500/20 rounded-xl text-xs text-amber-400 leading-relaxed">
           Get your Consumer Key and Secret from your Pesapal merchant dashboard at <span className="font-semibold">pay.pesapal.com</span>. These credentials enable M-Pesa STK push payments for your clients.
+        </div>
+
+        <div className="flex items-center justify-between p-4 bg-card border border-border rounded-xl">
+          <div>
+            <p className="text-sm font-semibold">Sandbox / Test Mode</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Use Pesapal's test environment. Disable for live payments.</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setSandbox(v => !v)}
+            className={`relative w-11 h-6 rounded-full transition-colors duration-200 focus:outline-none ${sandbox ? "bg-primary" : "bg-muted"}`}
+          >
+            <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform duration-200 ${sandbox ? "translate-x-5" : "translate-x-0"}`} />
+          </button>
         </div>
 
         <div>

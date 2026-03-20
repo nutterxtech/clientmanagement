@@ -215,7 +215,7 @@ router.get("/export", authenticate, requireAdmin, async (_req: AuthRequest, res:
 // Get admin settings (Pesapal keys)
 router.get("/settings", authenticate, requireAdmin, async (_req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const keys = ["pesapal_consumer_key", "pesapal_consumer_secret"];
+    const keys = ["pesapal_consumer_key", "pesapal_consumer_secret", "pesapal_sandbox"];
     const docs = await Settings.find({ key: { $in: keys } });
     const result: Record<string, string> = {};
     for (const doc of docs) result[doc.key] = doc.value;
@@ -228,13 +228,16 @@ router.get("/settings", authenticate, requireAdmin, async (_req: AuthRequest, re
 // Save admin settings (Pesapal keys)
 router.put("/settings", authenticate, requireAdmin, async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const { pesapal_consumer_key, pesapal_consumer_secret } = req.body;
+    const { pesapal_consumer_key, pesapal_consumer_secret, pesapal_sandbox } = req.body;
     const ops = [];
     if (pesapal_consumer_key !== undefined) {
-      ops.push(Settings.findOneAndUpdate({ key: "pesapal_consumer_key" }, { value: pesapal_consumer_key }, { upsert: true }));
+      ops.push(Settings.findOneAndUpdate({ key: "pesapal_consumer_key" }, { value: pesapal_consumer_key }, { upsert: true, new: true }));
     }
     if (pesapal_consumer_secret !== undefined) {
-      ops.push(Settings.findOneAndUpdate({ key: "pesapal_consumer_secret" }, { value: pesapal_consumer_secret }, { upsert: true }));
+      ops.push(Settings.findOneAndUpdate({ key: "pesapal_consumer_secret" }, { value: pesapal_consumer_secret }, { upsert: true, new: true }));
+    }
+    if (pesapal_sandbox !== undefined) {
+      ops.push(Settings.findOneAndUpdate({ key: "pesapal_sandbox" }, { value: String(pesapal_sandbox) }, { upsert: true, new: true }));
     }
     await Promise.all(ops);
     res.json({ message: "Settings saved" });

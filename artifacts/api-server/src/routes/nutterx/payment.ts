@@ -2,32 +2,63 @@ import { Router, Request, Response } from "express";
 import { authenticate, AuthRequest } from "../../middlewares/auth";
 import { ServiceRequest } from "../../models/ServiceRequest";
 import { Settings } from "../../models/Settings";
+import { logger } from "../../lib/logger";
 
 const router = Router();
 
-async function getPesapalCredentials(): Promise<{ consumerKey: string; consumerSecret: string } | null> {
-  const [keyDoc, secretDoc] = await Promise.all([
+async function getPesapalCredentials(): Promise<{
+  consumerKey: string;
+  consumerSecret: string;
+  sandbox: boolean;
+} | null> {
+  const [keyDoc, secretDoc, sandboxDoc] = await Promise.all([
     Settings.findOne({ key: "pesapal_consumer_key" }),
     Settings.findOne({ key: "pesapal_consumer_secret" }),
+    Settings.findOne({ key: "pesapal_sandbox" }),
   ]);
   if (!keyDoc?.value || !secretDoc?.value) return null;
-  return { consumerKey: keyDoc.value, consumerSecret: secretDoc.value };
+  return {
+    consumerKey: keyDoc.value,
+    consumerSecret: secretDoc.value,
+    sandbox: sandboxDoc?.value === "true",
+  };
 }
 
-async function getPesapalToken(consumerKey: string, consumerSecret: string): Promise<string> {
-  const res = await fetch("https://pay.pesapal.com/v3/api/Auth/RequestToken", {
+function pesapalBase(sandbox: boolean): string {
+  return sandbox
+    ? "https://cybqa.pesapal.com/pesapalv3"
+    : "https://pay.pesapal.com/v3";
+}
+
+async function getPesapalToken(consumerKey: string, consumerSecret: string, sandbox: boolean): Promise<string> {
+  const url = `${pesapalBase(sandbox)}/api/Auth/RequestToken`;
+  logger.info({ url, sandbox }, "Requesting Pesapal token");
+
+  const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json" },
     body: JSON.stringify({ consumer_key: consumerKey, consumer_secret: consumerSecret }),
   });
-  if (!res.ok) throw new Error("Failed to authenticate with Pesapal");
+
   const data = await res.json();
-  if (!data.token) throw new Error("No token returned from Pesapal");
+  logger.info({ status: res.status, data }, "Pesapal token response");
+
+  if (!res.ok) {
+    const msg = data?.error?.message || data?.message || `HTTP ${res.status}`;
+    throw new Error(`Pesapal auth failed: ${msg}`);
+  }
+  if (data.error?.message) {
+    throw new Error(`Pesapal auth error: ${data.error.message}`);
+  }
+  if (!data.token) {
+    throw new Error(`Pesapal returned no token. Response: ${JSON.stringify(data)}`);
+  }
   return data.token;
 }
 
-async function registerIPN(token: string, ipnUrl: string): Promise<string> {
-  const res = await fetch("https://pay.pesapal.com/v3/api/URLSetup/RegisterIPN", {
+async function registerIPN(token: string, ipnUrl: string, sandbox: boolean): Promise<string> {
+  const url = `${pesapalBase(sandbox)}/api/URLSetup/RegisterIPN`;
+  const res = await fetch(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -37,6 +68,7 @@ async function registerIPN(token: string, ipnUrl: string): Promise<string> {
     body: JSON.stringify({ url: ipnUrl, ipn_notification_type: "GET" }),
   });
   const data = await res.json();
+  logger.info({ data }, "Pesapal IPN registration");
   return data.ipn_id || "";
 }
 
@@ -68,13 +100,13 @@ router.post("/initiate", authenticate, async (req: AuthRequest, res: Response): 
       return;
     }
 
-    const token = await getPesapalToken(creds.consumerKey, creds.consumerSecret);
+    const token = await getPesapalToken(creds.consumerKey, creds.consumerSecret, creds.sandbox);
 
     const host = req.headers.host || "localhost";
     const protocol = req.headers["x-forwarded-proto"] || "https";
     const ipnUrl = `${protocol}://${host}/api/payment/ipn`;
 
-    const notificationId = await registerIPN(token, ipnUrl);
+    const notificationId = await registerIPN(token, ipnUrl, creds.sandbox);
 
     const user = serviceReq.user as any;
     const cleanPhone = phone.replace(/\D/g, "");
@@ -96,7 +128,9 @@ router.post("/initiate", authenticate, async (req: AuthRequest, res: Response): 
       },
     };
 
-    const orderRes = await fetch("https://pay.pesapal.com/v3/api/Transactions/SubmitOrderRequest", {
+    logger.info({ orderPayload }, "Submitting Pesapal order");
+
+    const orderRes = await fetch(`${pesapalBase(creds.sandbox)}/api/Transactions/SubmitOrderRequest`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -107,8 +141,10 @@ router.post("/initiate", authenticate, async (req: AuthRequest, res: Response): 
     });
 
     const orderData = await orderRes.json();
+    logger.info({ status: orderRes.status, orderData }, "Pesapal order response");
+
     if (!orderRes.ok || orderData.error) {
-      throw new Error(orderData.error?.message || "Failed to initiate payment");
+      throw new Error(orderData.error?.message || orderData.message || "Failed to initiate payment");
     }
 
     await ServiceRequest.findByIdAndUpdate(requestId, {
@@ -122,6 +158,7 @@ router.post("/initiate", authenticate, async (req: AuthRequest, res: Response): 
       orderTrackingId: orderData.order_tracking_id,
     });
   } catch (err: any) {
+    logger.error({ err: err.message }, "Payment initiation error");
     res.status(500).json({ message: err.message || "Payment initiation failed" });
   }
 });
@@ -145,9 +182,9 @@ router.get("/status/:requestId", authenticate, async (req: AuthRequest, res: Res
     const creds = await getPesapalCredentials();
     if (!creds) { res.json({ paymentStatus: serviceReq.paymentStatus }); return; }
 
-    const token = await getPesapalToken(creds.consumerKey, creds.consumerSecret);
+    const token = await getPesapalToken(creds.consumerKey, creds.consumerSecret, creds.sandbox);
     const statusRes = await fetch(
-      `https://pay.pesapal.com/v3/api/Transactions/GetTransactionStatus?orderTrackingId=${serviceReq.pesapalOrderTrackingId}`,
+      `${pesapalBase(creds.sandbox)}/api/Transactions/GetTransactionStatus?orderTrackingId=${serviceReq.pesapalOrderTrackingId}`,
       { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" } }
     );
 
@@ -165,7 +202,8 @@ router.get("/status/:requestId", authenticate, async (req: AuthRequest, res: Res
     }
 
     res.json({ paymentStatus });
-  } catch {
+  } catch (err: any) {
+    logger.error({ err: err.message }, "Payment status check error");
     res.status(500).json({ message: "Failed to check status" });
   }
 });
