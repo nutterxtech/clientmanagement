@@ -4,21 +4,23 @@ import { useSocket } from "@/hooks/use-socket";
 import { useGetChats, useGetChatMessages, useSendMessage, useStartDirectChat } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Send, Users, User, CircleDot, MessageSquare, Headphones, ChevronDown, ChevronUp, Pin } from "lucide-react";
-import { formatTime } from "@/lib/utils";
+import { Send, User, CircleDot, MessageSquare, Headphones, ArrowLeft, Users, Pin, Search } from "lucide-react";
+import { formatTime, formatDate } from "@/lib/utils";
 import { cn } from "@/lib/utils";
-import { useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
+
+type Screen = "list" | "chat";
 
 export default function Chat() {
   const { user } = useAuth();
   const { socket, isConnected, onlineUsers } = useSocket();
   const { data: chats, isLoading: chatsLoading, refetch: refetchChats } = useGetChats();
   const [allUsers, setAllUsers] = useState<any[]>([]);
-  const [showUserList, setShowUserList] = useState(false);
-
+  const [screen, setScreen] = useState<Screen>("list");
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [message, setMessage] = useState("");
+  const [search, setSearch] = useState("");
+  const [contactingAdmin, setContactingAdmin] = useState(false);
 
   const { data: messages, isLoading: messagesLoading, refetch: refetchMessages } = useGetChatMessages(
     activeChatId || "",
@@ -28,9 +30,8 @@ export default function Chat() {
   const sendMessageMutation = useSendMessage();
   const startChatMutation = useStartDirectChat();
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const queryClient = useQueryClient();
 
-  // Fetch all users for the "People" panel
+  // Fetch all users
   useEffect(() => {
     const token = localStorage.getItem("nutterx_token");
     if (!token) return;
@@ -60,6 +61,16 @@ export default function Chat() {
     return () => { socket.off("new_message", handler); };
   }, [socket, activeChatId, refetchMessages, refetchChats]);
 
+  const openChat = (chatId: string) => {
+    setActiveChatId(chatId);
+    setScreen("chat");
+  };
+
+  const goBack = () => {
+    setScreen("list");
+    setActiveChatId(null);
+  };
+
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!message.trim() || !activeChatId) return;
@@ -75,24 +86,21 @@ export default function Chat() {
 
   const handleStartChat = async (userId: string) => {
     const existing = chats?.find(c =>
-      c.type === "direct" &&
-      c.participants?.some((p: any) => p._id === userId)
+      c.type === "direct" && c.participants?.some((p: any) => p._id === userId)
     );
-    if (existing) { setActiveChatId(existing._id!); return; }
+    if (existing) { openChat(existing._id!); return; }
     try {
       const chat = await startChatMutation.mutateAsync({ userId });
       await refetchChats();
-      setActiveChatId((chat as any)._id);
+      openChat((chat as any)._id);
     } catch {}
   };
-
-  const [contactingAdmin, setContactingAdmin] = useState(false);
 
   const handleContactAdmin = async () => {
     const existing = chats?.find(c =>
       c.type === "direct" && c.participants?.some((p: any) => p.role === "admin")
     );
-    if (existing) { setActiveChatId(existing._id!); return; }
+    if (existing) { openChat(existing._id!); return; }
     setContactingAdmin(true);
     try {
       const token = localStorage.getItem("nutterx_token");
@@ -100,12 +108,12 @@ export default function Chat() {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       });
-      if (!res.ok) throw new Error("Failed");
+      if (!res.ok) throw new Error();
       const chat = await res.json();
       await refetchChats();
-      setActiveChatId(chat._id);
+      openChat(chat._id);
     } catch {
-      alert("Could not reach support. Please try again shortly.");
+      alert("Could not reach support. Please try again.");
     } finally {
       setContactingAdmin(false);
     }
@@ -117,23 +125,28 @@ export default function Chat() {
     return other?.name || "Unknown";
   };
 
+  const getChatAvatar = (chat: any) => {
+    if (chat.type === "group") return null;
+    const other = chat.participants?.find((p: any) => p._id !== user?._id);
+    return other?.name?.charAt(0).toUpperCase() || "?";
+  };
+
   const getChatSubtitle = (chat: any) => {
     if (chat.type === "group") return `${chat.participants?.length || 0} members`;
     const other = chat.participants?.find((p: any) => p._id !== user?._id);
     return other?.role === "admin" ? "Support Team" : other?.email || "";
   };
 
-  const isUserOnline = (userId: string) => onlineUsers.includes(userId);
+  const isAdminChat = (chat: any) =>
+    chat.type === "direct" && chat.participants?.some((p: any) => p.role === "admin");
 
   const getChatOtherId = (chat: any) => {
     const other = chat.participants?.find((p: any) => p._id !== user?._id);
     return other?._id;
   };
 
-  const isAdminChat = (chat: any) =>
-    chat.type === "direct" && chat.participants?.some((p: any) => p.role === "admin");
+  const isOnline = (userId?: string) => !!userId && onlineUsers.includes(userId);
 
-  // Sort chats: admin chat first (pinned), then by last message
   const sortedChats = chats
     ? [...chats].sort((a: any, b: any) => {
         if (isAdminChat(a) && !isAdminChat(b)) return -1;
@@ -142,189 +155,228 @@ export default function Chat() {
       })
     : [];
 
+  const filteredUsers = allUsers.filter(u =>
+    u.name?.toLowerCase().includes(search.toLowerCase()) ||
+    u.email?.toLowerCase().includes(search.toLowerCase())
+  );
+
   const activeChat = chats?.find(c => c._id === activeChatId);
+  const activeChatOtherId = activeChat ? getChatOtherId(activeChat) : null;
 
   return (
-    <div className="pt-20 h-screen flex flex-col px-4 sm:px-6 lg:px-8 max-w-[1600px] mx-auto pb-4">
-      <div className="flex-1 glass-panel rounded-3xl overflow-hidden flex border border-white/10 shadow-2xl mt-4 min-h-0">
+    <div className="pt-20 h-screen flex flex-col">
+      <div className="flex-1 relative overflow-hidden">
 
-        {/* Sidebar */}
-        <div className="w-80 shrink-0 border-r border-white/5 bg-black/20 flex flex-col min-h-0">
-          <div className="p-4 border-b border-white/5 shrink-0">
-            <div className="flex items-center justify-between">
-              <h2 className="text-xl font-bold">Messages</h2>
-              <motion.div
-                animate={{ scale: isConnected ? 1 : 0.95 }}
-                className={cn(
-                  "flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full border",
-                  isConnected
-                    ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
-                    : "bg-red-500/10 border-red-500/20 text-red-400"
-                )}
-              >
-                <CircleDot className="w-3 h-3" />
-                {isConnected ? "Live" : "Offline"}
-              </motion.div>
-            </div>
-          </div>
-
-          <div className="flex-1 overflow-y-auto p-2 space-y-0.5">
-            {/* Chats list */}
-            {chatsLoading ? (
-              <div className="p-6 flex justify-center">
-                <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-              </div>
-            ) : sortedChats.length > 0 ? (
-              <AnimatePresence initial={false}>
-                {sortedChats.map((chat, i) => {
-                  const otherId = getChatOtherId(chat);
-                  const online = otherId ? isUserOnline(otherId) : false;
-                  const pinned = isAdminChat(chat) && user?.role !== "admin";
-                  return (
-                    <motion.button
-                      key={chat._id}
-                      initial={{ opacity: 0, x: -12 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: i * 0.04, duration: 0.25 }}
-                      onClick={() => setActiveChatId(chat._id!)}
-                      className={cn(
-                        "w-full p-3 rounded-xl flex items-center gap-3 transition-all text-left group",
-                        activeChatId === chat._id
-                          ? "bg-primary/20 border border-primary/30"
-                          : "hover:bg-white/5 border border-transparent"
-                      )}
-                    >
-                      <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500/20 to-indigo-500/20 flex items-center justify-center shrink-0 relative border border-white/10">
-                        {chat.type === "group"
-                          ? <Users className="w-5 h-5 text-blue-400" />
-                          : <User className="w-5 h-5 text-indigo-400" />
-                        }
-                        {online && (
-                          <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-emerald-500 border-2 border-[#0a0e1a] rounded-full" />
-                        )}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="font-semibold text-sm truncate flex items-center gap-1.5">
-                          {getChatName(chat)}
-                          {pinned && <Pin className="w-3 h-3 text-primary shrink-0" />}
-                        </div>
-                        <div className="text-xs text-muted-foreground truncate">
-                          {(chat as any).lastMessage?.content || getChatSubtitle(chat)}
-                        </div>
-                      </div>
-                      {(chat as any).unreadCount > 0 && (
-                        <span className="shrink-0 w-5 h-5 bg-primary rounded-full text-xs flex items-center justify-center font-bold">
-                          {(chat as any).unreadCount}
-                        </span>
-                      )}
-                    </motion.button>
-                  );
-                })}
-              </AnimatePresence>
-            ) : (
-              <div className="p-4 text-center text-sm text-muted-foreground">No conversations yet</div>
-            )}
-
-            {/* People to chat with */}
-            {allUsers.length > 0 && (
-              <div className="pt-3 mt-2 border-t border-white/5 px-1">
-                <button
-                  onClick={() => setShowUserList(!showUserList)}
-                  className="w-full flex items-center justify-between px-2 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors"
-                >
-                  <span>People ({allUsers.length})</span>
-                  {showUserList ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                </button>
-                <AnimatePresence>
-                  {showUserList && (
-                    <motion.div
-                      initial={{ height: 0, opacity: 0 }}
-                      animate={{ height: "auto", opacity: 1 }}
-                      exit={{ height: 0, opacity: 0 }}
-                      transition={{ duration: 0.2 }}
-                      className="overflow-hidden"
-                    >
-                      <div className="space-y-0.5 mt-1">
-                        {allUsers.map(u => (
-                          <motion.button
-                            key={u._id}
-                            whileHover={{ x: 4 }}
-                            onClick={() => handleStartChat(u._id)}
-                            className="w-full p-2.5 text-sm text-left hover:bg-white/5 rounded-xl flex items-center gap-2.5 transition-colors"
-                          >
-                            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500/30 to-purple-500/30 flex items-center justify-center shrink-0 border border-white/10 font-bold text-xs relative">
-                              {u.name?.charAt(0).toUpperCase()}
-                              {isUserOnline(u._id) && (
-                                <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-emerald-500 border-2 border-[#0a0e1a] rounded-full" />
-                              )}
-                            </div>
-                            <div className="min-w-0">
-                              <div className="font-medium text-sm truncate">{u.name}</div>
-                              {u.role === "admin" && (
-                                <div className="text-[10px] text-red-400 uppercase tracking-wider">Admin</div>
-                              )}
-                            </div>
-                            {startChatMutation.isPending && <div className="w-3.5 h-3.5 border border-primary border-t-transparent rounded-full animate-spin ml-auto" />}
-                          </motion.button>
-                        ))}
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
-            )}
-          </div>
-
-          {/* Contact Support pinned button */}
-          {user?.role !== "admin" && (
-            <div className="p-3 border-t border-white/5 shrink-0">
-              <motion.button
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                onClick={handleContactAdmin}
-                disabled={contactingAdmin}
-                className="w-full py-2.5 px-4 rounded-xl bg-primary/10 border border-primary/20 text-primary text-sm font-medium hover:bg-primary/20 transition-colors flex items-center justify-center gap-2 disabled:opacity-60"
-              >
-                <Headphones className="w-4 h-4" />
-                {contactingAdmin ? "Connecting..." : "Contact Support"}
-              </motion.button>
-            </div>
-          )}
-        </div>
-
-        {/* Chat Area */}
-        <div className="flex-1 flex flex-col min-w-0 min-h-0">
-          {activeChatId ? (
-            <>
+        {/* LIST SCREEN */}
+        <AnimatePresence>
+          {screen === "list" && (
+            <motion.div
+              key="list"
+              initial={{ x: 0, opacity: 1 }}
+              exit={{ x: "-100%", opacity: 0 }}
+              transition={{ duration: 0.28, ease: "easeInOut" }}
+              className="absolute inset-0 flex flex-col bg-background overflow-y-auto"
+            >
               {/* Header */}
-              <motion.div
-                initial={{ opacity: 0, y: -8 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="h-16 border-b border-white/5 bg-black/20 flex items-center px-6 shrink-0 backdrop-blur-md"
-              >
-                <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500/20 to-indigo-500/20 flex items-center justify-center mr-3 border border-white/10">
+              <div className="px-4 pt-4 pb-3 border-b border-border bg-card/60 backdrop-blur-md shrink-0">
+                <div className="flex items-center justify-between mb-3">
+                  <h1 className="text-2xl font-bold">Messages</h1>
+                  <div className={cn(
+                    "flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full border",
+                    isConnected
+                      ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
+                      : "bg-red-500/10 border-red-500/20 text-red-400"
+                  )}>
+                    <CircleDot className="w-3 h-3" />
+                    {isConnected ? "Live" : "Offline"}
+                  </div>
+                </div>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <Input
+                    value={search}
+                    onChange={e => setSearch(e.target.value)}
+                    placeholder="Search people..."
+                    className="pl-9 bg-secondary/50 border-border h-9 text-sm rounded-full"
+                  />
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-y-auto">
+                {/* Conversations */}
+                {!search && (
+                  <div>
+                    {chatsLoading ? (
+                      <div className="p-8 flex justify-center">
+                        <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                      </div>
+                    ) : sortedChats.length > 0 ? (
+                      <div>
+                        <div className="px-4 pt-4 pb-1">
+                          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Conversations</span>
+                        </div>
+                        {sortedChats.map((chat, i) => {
+                          const otherId = getChatOtherId(chat);
+                          const online = isOnline(otherId);
+                          const pinned = isAdminChat(chat) && user?.role !== "admin";
+                          const lastMsg = (chat as any).lastMessage?.content || getChatSubtitle(chat);
+                          return (
+                            <motion.button
+                              key={chat._id}
+                              initial={{ opacity: 0, y: 6 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              transition={{ delay: i * 0.04 }}
+                              onClick={() => openChat(chat._id!)}
+                              className="w-full px-4 py-3.5 flex items-center gap-3.5 hover:bg-secondary/40 active:bg-secondary/60 transition-colors text-left border-b border-border/50"
+                            >
+                              <div className="relative shrink-0">
+                                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-indigo-500/30 to-purple-500/30 border border-border flex items-center justify-center font-bold text-base">
+                                  {chat.type === "group"
+                                    ? <Users className="w-5 h-5 text-blue-400" />
+                                    : getChatAvatar(chat)}
+                                </div>
+                                {online && (
+                                  <span className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-emerald-500 border-2 border-background rounded-full" />
+                                )}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center justify-between gap-2 mb-0.5">
+                                  <span className="font-semibold text-sm truncate flex items-center gap-1.5">
+                                    {getChatName(chat)}
+                                    {pinned && <Pin className="w-3 h-3 text-primary shrink-0" />}
+                                  </span>
+                                  {(chat as any).lastMessage?.createdAt && (
+                                    <span className="text-[10px] text-muted-foreground shrink-0">
+                                      {formatTime((chat as any).lastMessage.createdAt)}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-xs text-muted-foreground truncate">{lastMsg}</div>
+                              </div>
+                              {(chat as any).unreadCount > 0 && (
+                                <span className="shrink-0 w-5 h-5 bg-primary rounded-full text-xs flex items-center justify-center font-bold text-white">
+                                  {(chat as any).unreadCount}
+                                </span>
+                              )}
+                            </motion.button>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="p-8 text-center text-sm text-muted-foreground">
+                        <MessageSquare className="w-10 h-10 mx-auto mb-3 opacity-20" />
+                        No conversations yet
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* People list */}
+                {filteredUsers.length > 0 && (
+                  <div>
+                    <div className="px-4 pt-4 pb-1">
+                      <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                        {search ? `Results (${filteredUsers.length})` : "People"}
+                      </span>
+                    </div>
+                    {filteredUsers.map((u, i) => (
+                      <motion.button
+                        key={u._id}
+                        initial={{ opacity: 0, y: 6 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: i * 0.03 }}
+                        onClick={() => handleStartChat(u._id)}
+                        className="w-full px-4 py-3 flex items-center gap-3.5 hover:bg-secondary/40 transition-colors text-left border-b border-border/50"
+                      >
+                        <div className="relative shrink-0">
+                          <div className="w-11 h-11 rounded-full bg-gradient-to-br from-blue-500/20 to-indigo-500/20 border border-border flex items-center justify-center font-bold text-sm">
+                            {u.name?.charAt(0).toUpperCase()}
+                          </div>
+                          {isOnline(u._id) && (
+                            <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-emerald-500 border-2 border-background rounded-full" />
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="font-semibold text-sm truncate">{u.name}</div>
+                          <div className="text-xs text-muted-foreground truncate">
+                            {u.role === "admin" ? "Support Team" : u.email}
+                          </div>
+                        </div>
+                        {u.role === "admin" && (
+                          <span className="text-[10px] bg-red-500/10 border border-red-500/20 text-red-400 px-2 py-0.5 rounded-full uppercase tracking-wider shrink-0">
+                            Admin
+                          </span>
+                        )}
+                      </motion.button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Contact Support */}
+              {user?.role !== "admin" && (
+                <div className="p-4 border-t border-border bg-card/60 backdrop-blur-md shrink-0">
+                  <motion.button
+                    whileHover={{ scale: 1.01 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={handleContactAdmin}
+                    disabled={contactingAdmin}
+                    className="w-full py-3 px-4 rounded-2xl bg-primary/10 border border-primary/20 text-primary text-sm font-semibold hover:bg-primary/20 transition-colors flex items-center justify-center gap-2 disabled:opacity-60"
+                  >
+                    <Headphones className="w-4 h-4" />
+                    {contactingAdmin ? "Connecting..." : "Contact Support"}
+                  </motion.button>
+                </div>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* CHAT SCREEN */}
+        <AnimatePresence>
+          {screen === "chat" && activeChatId && (
+            <motion.div
+              key="chat"
+              initial={{ x: "100%", opacity: 0 }}
+              animate={{ x: 0, opacity: 1 }}
+              exit={{ x: "100%", opacity: 0 }}
+              transition={{ duration: 0.28, ease: "easeInOut" }}
+              className="absolute inset-0 flex flex-col bg-background"
+            >
+              {/* Chat Header */}
+              <div className="h-16 border-b border-border bg-card/80 backdrop-blur-md flex items-center px-4 gap-3 shrink-0">
+                <motion.button
+                  whileTap={{ scale: 0.9 }}
+                  onClick={goBack}
+                  className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-secondary/60 transition-colors"
+                >
+                  <ArrowLeft className="w-5 h-5" />
+                </motion.button>
+                <div className="w-9 h-9 rounded-full bg-gradient-to-br from-indigo-500/30 to-purple-500/30 border border-border flex items-center justify-center font-bold text-sm shrink-0 relative">
                   {activeChat?.type === "group"
                     ? <Users className="w-4 h-4 text-blue-400" />
-                    : <User className="w-4 h-4 text-indigo-400" />}
-                </div>
-                <div>
-                  <div className="font-semibold">{activeChat ? getChatName(activeChat) : "Chat"}</div>
-                  {activeChat && (
-                    <div className="text-xs text-muted-foreground flex items-center gap-1.5">
-                      {getChatSubtitle(activeChat)}
-                      {getChatOtherId(activeChat) && isUserOnline(getChatOtherId(activeChat)) && (
-                        <span className="flex items-center gap-1 text-emerald-400">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                          Online
-                        </span>
-                      )}
-                    </div>
+                    : getChatAvatar(activeChat)}
+                  {activeChatOtherId && isOnline(activeChatOtherId) && (
+                    <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-emerald-500 border-2 border-background rounded-full" />
                   )}
                 </div>
-              </motion.div>
+                <div className="flex-1 min-w-0">
+                  <div className="font-semibold text-sm truncate">
+                    {activeChat ? getChatName(activeChat) : "Chat"}
+                  </div>
+                  <div className="text-xs text-muted-foreground flex items-center gap-1">
+                    {activeChat && getChatSubtitle(activeChat)}
+                    {activeChatOtherId && isOnline(activeChatOtherId) && (
+                      <span className="text-emerald-400 flex items-center gap-1">
+                        · <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse inline-block" /> Online
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
 
               {/* Messages */}
-              <div className="flex-1 overflow-y-auto p-6 space-y-3 min-h-0">
+              <div className="flex-1 overflow-y-auto p-4 space-y-2 min-h-0">
                 {messagesLoading ? (
                   <div className="flex justify-center mt-10">
                     <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
@@ -336,39 +388,45 @@ export default function Chat() {
                       return (
                         <motion.div
                           key={msg._id}
-                          initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                          initial={{ opacity: 0, y: 8, scale: 0.95 }}
                           animate={{ opacity: 1, y: 0, scale: 1 }}
-                          transition={{ duration: 0.18, type: "spring", stiffness: 300, damping: 25 }}
-                          className={cn("flex flex-col max-w-[72%]", isOwn ? "ml-auto items-end" : "mr-auto items-start")}
+                          transition={{ duration: 0.18, type: "spring", stiffness: 320, damping: 28 }}
+                          className={cn("flex", isOwn ? "justify-end" : "justify-start")}
                         >
-                          {!isOwn && (
-                            <span className="text-xs text-muted-foreground mb-1 ml-1 font-medium">{msg.sender?.name}</span>
-                          )}
-                          <motion.div
-                            whileHover={{ scale: 1.01 }}
-                            className={cn(
-                              "px-4 py-2.5 rounded-2xl text-sm shadow-sm break-words",
-                              isOwn
-                                ? "bg-gradient-to-br from-blue-500 to-indigo-600 text-white rounded-br-none"
-                                : "bg-white/10 text-foreground rounded-bl-none border border-white/10"
+                          <div className={cn("max-w-[78%] flex flex-col", isOwn ? "items-end" : "items-start")}>
+                            {!isOwn && (
+                              <span className="text-xs text-muted-foreground mb-1 ml-2 font-medium">
+                                {msg.sender?.name}
+                              </span>
                             )}
-                          >
-                            {msg.content}
-                          </motion.div>
-                          <span className="text-[10px] text-muted-foreground mt-1 px-1">
-                            {formatTime(msg.createdAt)}
-                          </span>
+                            <div className={cn(
+                              "px-4 py-2.5 rounded-2xl text-sm shadow-sm break-words leading-relaxed",
+                              isOwn
+                                ? "bg-primary text-primary-foreground rounded-br-sm"
+                                : "bg-secondary text-foreground rounded-bl-sm"
+                            )}>
+                              {msg.content}
+                            </div>
+                            <span className="text-[10px] text-muted-foreground mt-1 px-1">
+                              {formatTime(msg.createdAt)}
+                            </span>
+                          </div>
                         </motion.div>
                       );
                     })}
                   </AnimatePresence>
                 ) : (
                   <motion.div
-                    initial={{ opacity: 0, scale: 0.9 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    className="flex flex-col items-center justify-center h-full text-muted-foreground"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    className="flex flex-col items-center justify-center h-full text-muted-foreground py-20"
                   >
-                    <MessageSquare className="w-10 h-10 mb-3 opacity-20" />
+                    <motion.div
+                      animate={{ y: [0, -8, 0] }}
+                      transition={{ duration: 2.5, repeat: Infinity, ease: "easeInOut" }}
+                    >
+                      <MessageSquare className="w-12 h-12 mb-3 opacity-20" />
+                    </motion.div>
                     <p className="text-sm">No messages yet. Say hello!</p>
                   </motion.div>
                 )}
@@ -376,48 +434,29 @@ export default function Chat() {
               </div>
 
               {/* Input */}
-              <div className="p-4 bg-black/40 border-t border-white/5 shrink-0">
-                <form onSubmit={handleSend} className="flex gap-2 max-w-4xl mx-auto">
+              <div className="p-3 bg-card/80 border-t border-border backdrop-blur-md shrink-0">
+                <form onSubmit={handleSend} className="flex gap-2 items-center">
                   <Input
                     value={message}
                     onChange={e => setMessage(e.target.value)}
                     placeholder="Type a message..."
-                    className="flex-1 bg-white/5 border-white/10 rounded-full px-5 h-11"
+                    className="flex-1 bg-secondary/50 border-border rounded-full px-5 h-11"
                     autoComplete="off"
                   />
-                  <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-                    <Button
-                      type="submit"
-                      variant="gradient"
-                      size="icon"
-                      className="rounded-full shrink-0"
-                      disabled={!message.trim() || sendMessageMutation.isPending}
-                    >
-                      <Send className="w-4 h-4 ml-0.5" />
-                    </Button>
-                  </motion.div>
+                  <motion.button
+                    type="submit"
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.92 }}
+                    disabled={!message.trim() || sendMessageMutation.isPending}
+                    className="w-11 h-11 rounded-full bg-primary flex items-center justify-center shrink-0 disabled:opacity-50 shadow-lg shadow-primary/30"
+                  >
+                    <Send className="w-4 h-4 text-primary-foreground ml-0.5" />
+                  </motion.button>
                 </form>
               </div>
-            </>
-          ) : (
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ duration: 0.3 }}
-              className="flex-1 flex flex-col items-center justify-center text-muted-foreground"
-            >
-              <motion.div
-                animate={{ y: [0, -8, 0] }}
-                transition={{ duration: 2.5, repeat: Infinity, ease: "easeInOut" }}
-                className="w-20 h-20 bg-white/5 rounded-full flex items-center justify-center mb-4 border border-white/5"
-              >
-                <MessageSquare className="w-9 h-9 opacity-20" />
-              </motion.div>
-              <p className="text-lg font-medium">Select a conversation</p>
-              <p className="text-sm mt-1 opacity-60">Choose from the list or click a person to start chatting</p>
             </motion.div>
           )}
-        </div>
+        </AnimatePresence>
       </div>
     </div>
   );

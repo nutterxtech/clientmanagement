@@ -9,9 +9,9 @@ import Auth from "@/pages/Auth";
 import Dashboard from "@/pages/Dashboard";
 import Chat from "@/pages/Chat";
 import Admin from "@/pages/Admin";
+import Clients from "@/pages/Clients";
 import NotFound from "@/pages/not-found";
 
-// Global fetch interceptor to inject JWT for /api requests
 const originalFetch = window.fetch;
 window.fetch = async (...args) => {
   let [resource, config] = args;
@@ -28,15 +28,13 @@ window.fetch = async (...args) => {
 };
 
 const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: { retry: 1, refetchOnWindowFocus: false },
-  },
+  defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
 });
 
 const pageVariants = {
-  initial: { opacity: 0, y: 16 },
+  initial: { opacity: 0, y: 12 },
   animate: { opacity: 1, y: 0 },
-  exit: { opacity: 0, y: -8 },
+  exit: { opacity: 0, y: -6 },
 };
 
 function AnimatedRoute({ component: Component }: { component: React.ComponentType }) {
@@ -46,8 +44,8 @@ function AnimatedRoute({ component: Component }: { component: React.ComponentTyp
       initial="initial"
       animate="animate"
       exit="exit"
-      transition={{ duration: 0.3, ease: "easeOut" }}
-      className="min-h-0 flex-1 flex flex-col"
+      transition={{ duration: 0.28, ease: "easeOut" }}
+      className="flex-1 flex flex-col"
     >
       <Component />
     </motion.div>
@@ -56,9 +54,8 @@ function AnimatedRoute({ component: Component }: { component: React.ComponentTyp
 
 function Router() {
   const [location] = useLocation();
-
   return (
-    <div className="flex flex-col min-h-screen selection:bg-primary/30 selection:text-white">
+    <div className="flex flex-col min-h-screen">
       <Navbar />
       <main className="flex-1 relative z-0 flex flex-col">
         <AnimatePresence mode="wait">
@@ -67,6 +64,7 @@ function Router() {
             <Route path="/auth" component={() => <AnimatedRoute component={Auth} />} />
             <Route path="/dashboard" component={() => <AnimatedRoute component={Dashboard} />} />
             <Route path="/chat" component={() => <AnimatedRoute component={Chat} />} />
+            <Route path="/clients" component={() => <AnimatedRoute component={Clients} />} />
             <Route path="/admin" component={() => <AnimatedRoute component={Admin} />} />
             <Route component={() => <AnimatedRoute component={NotFound} />} />
           </Switch>

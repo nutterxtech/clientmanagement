@@ -10,6 +10,7 @@ const ADMIN_PASSWORD = "BILLnutter001002";
 
 const router = Router();
 
+// Admin verify (special login)
 router.post("/verify", async (req: Request, res: Response): Promise<void> => {
   const { username, password } = req.body;
   if (username !== ADMIN_USERNAME || password !== ADMIN_PASSWORD) {
@@ -28,15 +29,38 @@ router.post("/verify", async (req: Request, res: Response): Promise<void> => {
   });
 });
 
+// Get all users
 router.get("/users", authenticate, requireAdmin, async (_req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const users = await User.find().select("-password").sort({ createdAt: -1 });
+    const users = await User.find({ role: { $ne: "admin" } }).select("-password").sort({ createdAt: -1 });
     res.json(users);
   } catch {
     res.status(500).json({ message: "Failed to fetch users" });
   }
 });
 
+// Admin creates a user with name, email, password
+router.post("/users", authenticate, requireAdmin, async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { name, email, password } = req.body;
+    if (!name || !email || !password) {
+      res.status(400).json({ message: "Name, email, and password are required" });
+      return;
+    }
+    const exists = await User.findOne({ email: email.toLowerCase() });
+    if (exists) {
+      res.status(400).json({ message: "Email already in use" });
+      return;
+    }
+    const user = new User({ name, email: email.toLowerCase(), password });
+    await user.save();
+    res.status(201).json({ _id: user._id, name: user.name, email: user.email, role: user.role, createdAt: user.createdAt });
+  } catch {
+    res.status(500).json({ message: "Failed to create user" });
+  }
+});
+
+// Get all service requests
 router.get("/requests", authenticate, requireAdmin, async (_req: AuthRequest, res: Response): Promise<void> => {
   try {
     const requests = await ServiceRequest.find()
@@ -48,22 +72,26 @@ router.get("/requests", authenticate, requireAdmin, async (_req: AuthRequest, re
   }
 });
 
+// Update service request (status + deadline)
 router.put("/requests/:id", authenticate, requireAdmin, async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const { status, adminNotes } = req.body;
+    const { status, adminNotes, subscriptionEndsAt } = req.body;
 
-    const update: Record<string, unknown> = { status, adminNotes };
+    const update: Record<string, unknown> = {};
+    if (status !== undefined) update["status"] = status;
+    if (adminNotes !== undefined) update["adminNotes"] = adminNotes;
 
-    if (status === "completed") {
+    if (subscriptionEndsAt) {
+      update["subscriptionEndsAt"] = new Date(subscriptionEndsAt);
+    }
+
+    if (status === "completed" && !subscriptionEndsAt) {
       update["completedAt"] = new Date();
       update["subscriptionEndsAt"] = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
     }
 
-    const request = await ServiceRequest.findByIdAndUpdate(
-      req.params["id"],
-      update,
-      { new: true }
-    ).populate("user", "name email");
+    const request = await ServiceRequest.findByIdAndUpdate(req.params["id"], update, { new: true })
+      .populate("user", "name email");
 
     if (!request) {
       res.status(404).json({ message: "Request not found" });
@@ -76,12 +104,12 @@ router.put("/requests/:id", authenticate, requireAdmin, async (req: AuthRequest,
   }
 });
 
+// Get active subscriptions
 router.get("/subscriptions", authenticate, requireAdmin, async (_req: AuthRequest, res: Response): Promise<void> => {
   try {
     const now = new Date();
     const requests = await ServiceRequest.find({
-      status: "completed",
-      subscriptionEndsAt: { $gt: now },
+      subscriptionEndsAt: { $exists: true, $gt: now },
     })
       .populate("user", "name email")
       .sort({ subscriptionEndsAt: 1 });
@@ -93,6 +121,7 @@ router.get("/subscriptions", authenticate, requireAdmin, async (_req: AuthReques
         _id: r._id,
         user: r.user,
         serviceName: r.serviceName,
+        status: r.status,
         completedAt: r.completedAt,
         subscriptionEndsAt: r.subscriptionEndsAt,
         daysRemaining,
@@ -105,6 +134,7 @@ router.get("/subscriptions", authenticate, requireAdmin, async (_req: AuthReques
   }
 });
 
+// Get all chats (admin)
 router.get("/chats", authenticate, requireAdmin, async (_req: AuthRequest, res: Response): Promise<void> => {
   try {
     const chats = await Chat.find()
@@ -113,6 +143,69 @@ router.get("/chats", authenticate, requireAdmin, async (_req: AuthRequest, res: 
     res.json(chats);
   } catch {
     res.status(500).json({ message: "Failed to fetch chats" });
+  }
+});
+
+// Public clients data — all users with active service requests
+router.get("/clients", authenticate, async (_req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const requests = await ServiceRequest.find({
+      status: { $in: ["in_progress", "completed"] },
+    })
+      .populate("user", "name email")
+      .sort({ createdAt: -1 });
+
+    res.json(requests.map((r) => ({
+      _id: r._id,
+      user: r.user,
+      serviceName: r.serviceName,
+      status: r.status,
+      subscriptionEndsAt: r.subscriptionEndsAt,
+      completedAt: r.completedAt,
+      createdAt: r.createdAt,
+    })));
+  } catch {
+    res.status(500).json({ message: "Failed to fetch clients" });
+  }
+});
+
+// Export users + service data as CSV
+router.get("/export", authenticate, requireAdmin, async (_req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const users = await User.find({ role: { $ne: "admin" } }).select("-password").sort({ createdAt: -1 });
+    const requests = await ServiceRequest.find().populate("user", "name email").sort({ createdAt: -1 });
+
+    const lines: string[] = [
+      "Name,Email,Service,Status,Deadline,Days Remaining,Joined",
+    ];
+
+    for (const u of users) {
+      const userRequests = requests.filter(
+        (r) => r.user && (r.user as any)._id?.toString() === u._id.toString()
+      );
+
+      if (userRequests.length === 0) {
+        lines.push(`"${u.name}","${u.email}","—","—","—","—","${u.createdAt.toISOString().split("T")[0]}"`);
+      } else {
+        for (const r of userRequests) {
+          const now = new Date();
+          const daysLeft = r.subscriptionEndsAt
+            ? Math.max(0, Math.ceil((r.subscriptionEndsAt.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)))
+            : "—";
+          const deadline = r.subscriptionEndsAt ? r.subscriptionEndsAt.toISOString().split("T")[0] : "—";
+          lines.push(
+            `"${u.name}","${u.email}","${r.serviceName}","${r.status}","${deadline}","${daysLeft}","${u.createdAt.toISOString().split("T")[0]}"`
+          );
+        }
+      }
+    }
+
+    const csv = lines.join("\n");
+    res.setHeader("Content-Type", "text/csv");
+    res.setHeader("Content-Disposition", "attachment; filename=nutterx-clients.csv");
+    res.send(csv);
+  } catch {
+    res.status(500).json({ message: "Export failed" });
   }
 });
 
