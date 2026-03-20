@@ -120,38 +120,47 @@ async function triggerSTKPushHeadless(redirectUrl: string, rawPhone: string): Pr
       "Mozilla/5.0 (Linux; Android 12; Pixel 6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Mobile Safari/537.36"
     );
 
-    // Load the Pesapal payment page
-    await page.goto(redirectUrl, { waitUntil: "networkidle2", timeout: 30_000 });
-    await new Promise(r => setTimeout(r, 1500));
+    // Block images, fonts and media — only JS/CSS/XHR needed → loads 2-3x faster
+    await page.setRequestInterception(true);
+    page.on("request", (req) => {
+      if (["image", "font", "media"].includes(req.resourceType())) {
+        req.abort();
+      } else {
+        req.continue();
+      }
+    });
 
-    // Make sure M-Pesa (pmpesake) radio is selected
+    // Use domcontentloaded (faster than networkidle2)
+    await page.goto(redirectUrl, { waitUntil: "domcontentloaded", timeout: 20_000 });
+    await new Promise(r => setTimeout(r, 1000));
+
+    // Ensure M-Pesa radio is selected
     await page.evaluate(() => {
       const radio = document.querySelector<HTMLInputElement>('input[value="pmpesake"]');
       if (radio && !radio.checked) radio.click();
     });
-    await new Promise(r => setTimeout(r, 500));
+    await new Promise(r => setTimeout(r, 300));
 
     // Fill the phone number field
     await page.waitForSelector("#PhoneNumber1", { visible: true, timeout: 10_000 });
-    await page.click("#PhoneNumber1", { clickCount: 3 }); // select all existing text
-    await page.type("#PhoneNumber1", phone, { delay: 50 });
+    await page.click("#PhoneNumber1", { clickCount: 3 });
+    await page.type("#PhoneNumber1", phone, { delay: 30 });
 
-    logger.info({ phone }, "Phone number filled, clicking Proceed");
+    logger.info({ phone }, "Phone filled — clicking Proceed");
 
-    // Click the Proceed / Submit button
-    await page.waitForSelector("#submitFormBtn", { visible: true, timeout: 5_000 });
-    await page.click("#submitFormBtn");
+    // Click Proceed and wait for Pesapal to redirect to PaymentConfirmation
+    // (that redirect IS the confirmation that the STK push was dispatched)
+    await Promise.all([
+      page.waitForNavigation({ timeout: 15_000, waitUntil: "domcontentloaded" }),
+      page.click("#submitFormBtn"),
+    ]);
 
-    // Wait for step-2 div to appear — this means the STK push was sent
-    await page.waitForFunction(
-      () => {
-        const el = document.querySelector("#pmpesake2");
-        return el && !el.classList.contains("hide");
-      },
-      { timeout: 20_000 }
-    );
-
-    logger.info("STK push confirmed sent by Pesapal");
+    const finalUrl = page.url();
+    if (finalUrl.includes("PaymentConfirmation")) {
+      logger.info("STK push dispatched — PaymentConfirmation reached");
+    } else {
+      logger.warn({ finalUrl }, "Unexpected URL after Pesapal form submit");
+    }
   } finally {
     await browser.close();
   }
