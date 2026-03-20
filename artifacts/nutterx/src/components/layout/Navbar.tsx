@@ -25,9 +25,16 @@ export function Navbar() {
   const logoHref = isAdminPage ? "/admin" : isAuthenticated ? "/dashboard" : "/";
 
   const NAV_LINKS = [
-    { href: "/clients",                        label: "Clients",   icon: Users },
-    { href: isAdminPage ? "/admin" : "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-    { href: "/chat",                           label: "Chat",      icon: MessageSquare, badge: showBadge ? totalUnread : 0 },
+    { href: "/clients",                            label: "Clients",   icon: Users },
+    {
+      href:    isAdminPage ? "/admin" : "/dashboard",
+      label:   "Dashboard",
+      icon:    LayoutDashboard,
+      onClick: isAdminPage
+        ? () => window.dispatchEvent(new CustomEvent("admin:reset"))
+        : undefined,
+    },
+    { href: "/chat", label: "Chat", icon: MessageSquare, badge: showBadge ? totalUnread : 0 },
   ];
 
   return (
@@ -55,7 +62,7 @@ export function Navbar() {
             <div className="hidden md:flex items-center gap-1">
               {isAuthenticated && NAV_LINKS.map(link => (
                 <Link key={link.href} href={link.href}>
-                  <button className={cn(
+                  <button onClick={(link as any).onClick} className={cn(
                     "relative flex items-center gap-2 px-3.5 py-2 rounded-xl text-sm font-medium transition-all",
                     location === link.href
                       ? "bg-primary/10 text-primary"
@@ -147,7 +154,7 @@ export function Navbar() {
               <div className="px-4 py-3 space-y-1">
                 {NAV_LINKS.map(link => (
                   <Link key={link.href} href={link.href} onClick={() => setMobileOpen(false)}>
-                    <button className={cn(
+                    <button onClick={(link as any).onClick} className={cn(
                       "w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all text-left relative",
                       location === link.href
                         ? "bg-primary/10 text-primary"

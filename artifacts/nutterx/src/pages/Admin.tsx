@@ -1071,6 +1071,12 @@ export default function Admin() {
     if (!isAdmin && !isAdminUrl) navigate("/");
   }, [isAdmin, isAdminUrl]);
 
+  useEffect(() => {
+    const onReset = () => setActiveTab("requests");
+    window.addEventListener("admin:reset", onReset);
+    return () => window.removeEventListener("admin:reset", onReset);
+  }, []);
+
   const { data: requests, isLoading: reqLoading } = useAdminGetRequests({ query: { enabled: isAdmin } });
   const { data: users, isLoading: usersLoading, refetch: refetchUsers } = useAdminGetUsers({ query: { enabled: isAdmin } });
   const { data: subscriptions } = useAdminGetSubscriptions({ query: { enabled: isAdmin } });
