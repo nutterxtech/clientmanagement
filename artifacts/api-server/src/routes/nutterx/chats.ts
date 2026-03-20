@@ -1,5 +1,6 @@
 import { Router, Response } from "express";
 import { Chat, Message } from "../../models/Chat";
+import { User } from "../../models/User";
 import { authenticate, requireAdmin, AuthRequest } from "../../middlewares/auth";
 import mongoose from "mongoose";
 
@@ -142,6 +143,50 @@ router.post("/:chatId/messages", authenticate, async (req: AuthRequest, res: Res
     res.status(201).json(message);
   } catch {
     res.status(500).json({ message: "Failed to send message" });
+  }
+});
+
+// GET /api/chats/admin/groups — admin: list all group chats
+router.get("/admin/groups", authenticate, requireAdmin, async (_req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const groups = await Chat.find({ type: "group" })
+      .populate("participants", "name email avatar role")
+      .sort({ updatedAt: -1 });
+    res.json(groups);
+  } catch {
+    res.status(500).json({ message: "Failed to fetch groups" });
+  }
+});
+
+// PATCH /api/chats/group/:chatId — admin: update avatar and/or add members
+router.patch("/group/:chatId", authenticate, requireAdmin, async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { chatId } = req.params;
+    const { avatar, addUserIds } = req.body as { avatar?: string; addUserIds?: string[] };
+
+    const chat = await Chat.findOne({ _id: chatId, type: "group" });
+    if (!chat) { res.status(404).json({ message: "Group not found" }); return; }
+
+    if (typeof avatar === "string") {
+      chat.avatar = avatar.trim() || undefined;
+    }
+
+    if (Array.isArray(addUserIds) && addUserIds.length > 0) {
+      const existingIds = chat.participants.map(p => p.toString());
+      const toAdd = addUserIds.filter(id => !existingIds.includes(id));
+      if (toAdd.length > 0) {
+        // Verify users exist
+        const validUsers = await User.find({ _id: { $in: toAdd } }).select("_id");
+        const validIds = validUsers.map(u => u._id as mongoose.Types.ObjectId);
+        chat.participants.push(...validIds);
+      }
+    }
+
+    await chat.save();
+    await chat.populate("participants", "name email avatar role");
+    res.json(chat);
+  } catch {
+    res.status(500).json({ message: "Failed to update group" });
   }
 });
 

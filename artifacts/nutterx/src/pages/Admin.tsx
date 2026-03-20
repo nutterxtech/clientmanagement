@@ -10,7 +10,8 @@ import {
   Users, FileText, Activity, ShieldAlert, Lock, Eye, EyeOff,
   AlertCircle, ImageDown, UserPlus, Calendar, CheckCircle2, X,
   Settings, Key, Save, Loader2, Trash2, Plus, Edit2, Package,
-  CreditCard, TrendingUp, DollarSign, Clock, Star
+  CreditCard, TrendingUp, DollarSign, Clock, Star, MessagesSquare,
+  Image, UserCheck, UserX
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
@@ -26,6 +27,7 @@ const pageVariants = {
 const TABS = [
   { id: "requests",   label: "Requests",  icon: FileText },
   { id: "users",      label: "Users",     icon: Users },
+  { id: "groups",     label: "Groups",    icon: MessagesSquare },
   { id: "deadlines",  label: "Deadlines", icon: Activity },
   { id: "services",   label: "Services",  icon: Package },
   { id: "payments",   label: "Revenue",   icon: CreditCard },
@@ -1027,11 +1029,162 @@ function CreateGroupModal({ users, onClose, token }: { users: any[]; onClose: ()
   );
 }
 
+// ── Manage Group Modal ────────────────────────────────────────
+function ManageGroupModal({ group, users, token, onClose, onUpdated }: {
+  group: any; users: any[]; token: string; onClose: () => void; onUpdated: (g: any) => void;
+}) {
+  const [avatarUrl, setAvatarUrl] = useState(group.avatar || "");
+  const [selectedAddIds, setSelectedAddIds] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+
+  const existingIds = new Set((group.participants || []).map((p: any) => p._id || p));
+  const availableUsers = users.filter((u: any) => !existingIds.has(u._id) && u.role !== "admin");
+
+  const toggleAdd = (id: string) =>
+    setSelectedAddIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+
+  const handleSave = async () => {
+    setError(""); setLoading(true);
+    try {
+      const res = await fetch(`/api/chats/group/${group._id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ avatar: avatarUrl, addUserIds: selectedAddIds }),
+      });
+      if (!res.ok) { const d = await res.json(); throw new Error(d.message || "Failed"); }
+      const updated = await res.json();
+      onUpdated(updated);
+      setSuccess("Group updated!"); setSelectedAddIds([]);
+      setTimeout(onClose, 1200);
+    } catch (e: any) { setError(e.message); }
+    finally { setLoading(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+      <motion.div initial={{ opacity: 0, y: 40, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 20 }}
+        className="w-full max-w-md bg-card border border-border rounded-3xl p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
+
+        <div className="flex items-center justify-between mb-5">
+          <h3 className="text-base font-bold">Manage Group</h3>
+          <button onClick={onClose} className="w-8 h-8 rounded-xl bg-secondary flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Group identity */}
+        <div className="flex items-center gap-4 mb-5 p-3 bg-secondary/30 rounded-2xl border border-border">
+          {group.avatar ? (
+            <img src={group.avatar} alt={group.name} className="w-14 h-14 rounded-2xl object-cover border border-border shrink-0" />
+          ) : (
+            <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-indigo-500/30 to-purple-600/30 border border-indigo-500/20 flex items-center justify-center font-bold text-2xl text-indigo-300 shrink-0">
+              {group.name?.charAt(0).toUpperCase()}
+            </div>
+          )}
+          <div>
+            <div className="font-bold">{group.name}</div>
+            <div className="text-xs text-muted-foreground">{(group.participants || []).length} members</div>
+          </div>
+        </div>
+
+        {/* Photo URL */}
+        <div className="mb-5">
+          <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5 mb-2">
+            <Image className="w-3.5 h-3.5" /> Group Photo URL
+          </label>
+          <Input
+            value={avatarUrl}
+            onChange={e => setAvatarUrl(e.target.value)}
+            placeholder="https://example.com/photo.jpg"
+            className="h-10 text-sm"
+          />
+          {avatarUrl && (
+            <div className="mt-2 flex items-center gap-2">
+              <img src={avatarUrl} alt="preview" className="w-10 h-10 rounded-xl object-cover border border-border"
+                onError={e => { (e.target as HTMLImageElement).style.display = "none"; }} />
+              <span className="text-xs text-muted-foreground">Preview</span>
+            </div>
+          )}
+        </div>
+
+        {/* Current members */}
+        <div className="mb-5">
+          <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5 mb-2">
+            <UserCheck className="w-3.5 h-3.5" /> Current Members ({(group.participants || []).length})
+          </label>
+          <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+            {(group.participants || []).map((p: any) => (
+              <div key={p._id || p} className="flex items-center gap-2.5 px-3 py-2 bg-secondary/30 rounded-xl border border-border">
+                <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-indigo-500/30 to-purple-600/30 flex items-center justify-center font-bold text-xs text-indigo-300 shrink-0">
+                  {(p.name || "?")?.charAt(0).toUpperCase()}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-medium truncate">{p.name || "Unknown"}</div>
+                  <div className="text-xs text-muted-foreground truncate">{p.email || ""}</div>
+                </div>
+                {p.role === "admin" && <span className="text-xs text-amber-400 font-semibold shrink-0">Admin</span>}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Add members */}
+        {availableUsers.length > 0 && (
+          <div className="mb-5">
+            <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5 mb-2">
+              <UserX className="w-3.5 h-3.5" /> Add Members {selectedAddIds.length > 0 && <span className="text-primary">({selectedAddIds.length} selected)</span>}
+            </label>
+            <div className="space-y-1.5 max-h-44 overflow-y-auto pr-1">
+              {availableUsers.map((u: any) => {
+                const checked = selectedAddIds.includes(u._id);
+                return (
+                  <button key={u._id} type="button" onClick={() => toggleAdd(u._id)}
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border text-left transition-colors ${checked ? "bg-primary/10 border-primary/30" : "bg-secondary/30 border-border hover:bg-secondary/50"}`}>
+                    <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-colors ${checked ? "bg-primary border-primary" : "border-muted-foreground/40"}`}>
+                      {checked && <CheckCircle2 className="w-3 h-3 text-white" />}
+                    </div>
+                    <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-indigo-500/30 to-purple-600/30 flex items-center justify-center font-bold text-xs text-indigo-300 shrink-0">
+                      {u.name?.charAt(0).toUpperCase()}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-medium truncate">{u.name}</div>
+                      <div className="text-xs text-muted-foreground truncate">{u.email}</div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+        {availableUsers.length === 0 && (
+          <p className="text-xs text-muted-foreground text-center py-3 mb-4">All registered users are already in this group.</p>
+        )}
+
+        {error && <p className="text-red-400 text-xs mb-3 text-center">{error}</p>}
+        {success && <p className="text-emerald-400 text-xs mb-3 text-center">{success}</p>}
+
+        <div className="flex gap-2">
+          <Button variant="ghost" className="flex-1 h-10" onClick={onClose}>Cancel</Button>
+          <Button variant="gradient" className="flex-1 h-10" onClick={handleSave} disabled={loading}>
+            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4 mr-1.5" />}
+            Save Changes
+          </Button>
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
 // ── Main Admin Component ──────────────────────────────────────
 export default function Admin() {
   const { user, login } = useAuth();
   const [activeTab, setActiveTab] = useState<Tab>("requests");
   const [showGroupModal, setShowGroupModal] = useState(false);
+  const [groups, setGroups] = useState<any[]>([]);
+  const [groupsLoading, setGroupsLoading] = useState(false);
+  const [managingGroup, setManagingGroup] = useState<any>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [editingRequest, setEditingRequest] = useState<any>(null);
@@ -1050,6 +1203,23 @@ export default function Admin() {
     window.addEventListener("admin:reset", onReset);
     return () => window.removeEventListener("admin:reset", onReset);
   }, []);
+
+  const fetchGroups = async () => {
+    const token = localStorage.getItem("nutterx_token");
+    if (!token) return;
+    setGroupsLoading(true);
+    try {
+      const res = await fetch("/api/chats/admin/groups", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) setGroups(await res.json());
+    } catch { /* ignore */ }
+    finally { setGroupsLoading(false); }
+  };
+
+  useEffect(() => {
+    if (activeTab === "groups" && isAdmin) fetchGroups();
+  }, [activeTab, isAdmin]);
 
   const { data: requests, isLoading: reqLoading } = useAdminGetRequests({ query: { queryKey: getAdminGetRequestsQueryKey(), enabled: isAdmin } });
   const { data: users, isLoading: usersLoading, refetch: refetchUsers } = useAdminGetUsers({ query: { queryKey: getAdminGetUsersQueryKey(), enabled: isAdmin } });
@@ -1228,6 +1398,87 @@ export default function Admin() {
                       </motion.div>
                     ))}
                     {!users?.length && <p className="text-muted-foreground text-center py-8">No users yet.</p>}
+                  </div>
+                )}
+              </motion.div>
+            )}
+
+            {/* GROUPS */}
+            {activeTab === "groups" && (
+              <motion.div key="groups" variants={pageVariants} initial="initial" animate="animate" exit="exit" transition={{ duration: 0.2 }}>
+                <div className="flex items-center justify-between mb-5 gap-3 flex-wrap">
+                  <div>
+                    <h2 className="text-lg font-bold">Group Chats</h2>
+                    <span className="text-sm text-muted-foreground">{groups.length} group{groups.length !== 1 ? "s" : ""}</span>
+                  </div>
+                  <button
+                    onClick={() => setShowGroupModal(true)}
+                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-500/10 border border-indigo-500/25 text-indigo-400 text-sm font-semibold hover:bg-indigo-500/20 transition-colors"
+                  >
+                    <Plus className="w-4 h-4" /> New Group
+                  </button>
+                </div>
+
+                {showGroupModal && (
+                  <CreateGroupModal
+                    users={users || []}
+                    onClose={() => { setShowGroupModal(false); fetchGroups(); }}
+                    token={localStorage.getItem("nutterx_token") || ""}
+                  />
+                )}
+
+                {managingGroup && (
+                  <ManageGroupModal
+                    group={managingGroup}
+                    users={users || []}
+                    token={localStorage.getItem("nutterx_token") || ""}
+                    onClose={() => setManagingGroup(null)}
+                    onUpdated={(updated) => setGroups(prev => prev.map(g => g._id === updated._id ? updated : g))}
+                  />
+                )}
+
+                {groupsLoading ? (
+                  <div className="flex justify-center py-16"><Loader2 className="w-7 h-7 animate-spin text-primary" /></div>
+                ) : groups.length === 0 ? (
+                  <p className="text-center text-muted-foreground py-12">No group chats yet. Create one above.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {groups.map((g, i) => (
+                      <motion.div key={g._id} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.04 }}
+                        className="p-4 bg-secondary/30 rounded-xl border border-border flex items-center gap-4 hover:bg-secondary/50 transition-colors">
+                        {g.avatar ? (
+                          <img src={g.avatar} alt={g.name} className="w-12 h-12 rounded-xl object-cover border border-border shrink-0" />
+                        ) : (
+                          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500/30 to-purple-600/30 border border-indigo-500/20 flex items-center justify-center font-bold text-xl text-indigo-300 shrink-0">
+                            {g.name?.charAt(0).toUpperCase()}
+                          </div>
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <div className="font-semibold text-sm">{g.name}</div>
+                          <div className="text-xs text-muted-foreground mt-0.5">
+                            {(g.participants || []).length} members · Created {formatDate(g.createdAt)}
+                          </div>
+                          <div className="flex flex-wrap gap-1 mt-1.5">
+                            {(g.participants || []).slice(0, 5).map((p: any) => (
+                              <span key={p._id || p} className="text-xs px-2 py-0.5 rounded-full bg-secondary border border-border text-muted-foreground">
+                                {p.name || "User"}
+                              </span>
+                            ))}
+                            {(g.participants || []).length > 5 && (
+                              <span className="text-xs px-2 py-0.5 rounded-full bg-secondary border border-border text-muted-foreground">
+                                +{(g.participants || []).length - 5} more
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => setManagingGroup(g)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary/10 border border-primary/20 text-primary text-xs font-medium hover:bg-primary/20 transition-colors shrink-0"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" /> Manage
+                        </button>
+                      </motion.div>
+                    ))}
                   </div>
                 )}
               </motion.div>

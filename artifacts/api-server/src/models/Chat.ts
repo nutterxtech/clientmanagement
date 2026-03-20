@@ -13,6 +13,7 @@ export interface IChat extends Document {
   _id: mongoose.Types.ObjectId;
   type: "direct" | "group";
   name?: string;
+  avatar?: string;
   participants: mongoose.Types.ObjectId[];
   createdBy?: mongoose.Types.ObjectId;
   lastMessage?: mongoose.Types.ObjectId;
@@ -34,6 +35,7 @@ const chatSchema = new Schema<IChat>(
   {
     type: { type: String, enum: ["direct", "group"], required: true },
     name: { type: String },
+    avatar: { type: String },
     participants: [{ type: Schema.Types.ObjectId, ref: "User" }],
     createdBy: { type: Schema.Types.ObjectId, ref: "User" },
     lastMessage: { type: Schema.Types.ObjectId, ref: "Message" },

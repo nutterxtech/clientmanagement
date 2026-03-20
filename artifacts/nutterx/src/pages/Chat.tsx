@@ -231,8 +231,10 @@ export default function Chat() {
                               className="w-full px-4 py-3.5 flex items-center gap-3.5 hover:bg-secondary/40 active:bg-secondary/60 transition-colors text-left border-b border-border/50"
                             >
                               <div className="relative shrink-0">
-                                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-indigo-500/30 to-purple-500/30 border border-border flex items-center justify-center font-bold text-base">
-                                  {chat.type === "group"
+                                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-indigo-500/30 to-purple-500/30 border border-border flex items-center justify-center font-bold text-base overflow-hidden">
+                                  {chat.type === "group" && (chat as any).avatar
+                                    ? <img src={(chat as any).avatar} alt={getChatName(chat)} className="w-full h-full object-cover" onError={e => { (e.currentTarget as HTMLImageElement).style.display="none"; }} />
+                                    : chat.type === "group"
                                     ? <Users className="w-5 h-5 text-blue-400" />
                                     : getChatAvatar(chat)}
                                 </div>
@@ -353,8 +355,10 @@ export default function Chat() {
                 >
                   <ArrowLeft className="w-5 h-5" />
                 </motion.button>
-                <div className="w-9 h-9 rounded-full bg-gradient-to-br from-indigo-500/30 to-purple-500/30 border border-border flex items-center justify-center font-bold text-sm shrink-0 relative">
-                  {activeChat?.type === "group"
+                <div className="w-9 h-9 rounded-full bg-gradient-to-br from-indigo-500/30 to-purple-500/30 border border-border flex items-center justify-center font-bold text-sm shrink-0 relative overflow-hidden">
+                  {activeChat?.type === "group" && (activeChat as any).avatar
+                    ? <img src={(activeChat as any).avatar} alt={getChatName(activeChat)} className="w-full h-full object-cover" onError={e => { (e.currentTarget as HTMLImageElement).style.display="none"; }} />
+                    : activeChat?.type === "group"
                     ? <Users className="w-4 h-4 text-blue-400" />
                     : getChatAvatar(activeChat)}
                   {activeChatOtherId && isOnline(activeChatOtherId) && (
