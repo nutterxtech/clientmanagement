@@ -649,7 +649,7 @@ async function exportAsPNG(requests: any[]) {
   const HEADER_H = 132;
   const STATS_H  = 60;
   const TH_H     = 30;
-  const ROW_H    = 32;   // single-line row (no payment amounts shown)
+  const ROW_H    = 40;   // 2-line status column: status top, end date below
   const FOOTER_H = 82;
 
   const totalH = HEADER_H + STATS_H + TH_H + requests.length * ROW_H + FOOTER_H;
@@ -832,12 +832,12 @@ async function exportAsPNG(requests: any[]) {
   // ── Data rows ────────────────────────────────────────────────
   const statusColor: Record<string, string> = {
     completed:   "#0a5020",
-    in_progress: "#0a3070",
+    in_progress: "#0a5020",
     pending:     "#7a4000",
     cancelled:   "#7a0a0a",
   };
   const statusLabel: Record<string, string> = {
-    completed:   "Completed",
+    completed:   "Active",
     in_progress: "Active",
     pending:     "Pending",
     cancelled:   "Cancelled",
@@ -863,7 +863,9 @@ async function exportAsPNG(requests: any[]) {
     ctx.strokeStyle = GOLD_LIGHT; ctx.lineWidth = 0.5;
     ctx.beginPath(); ctx.moveTo(PAD, rowY + ROW_H); ctx.lineTo(PAD + CW, rowY + ROW_H); ctx.stroke();
 
-    const MID = rowY + ROW_H * 0.62; // single-line vertical centre
+    const MID = rowY + ROW_H * 0.5;  // vertical centre for # / Name / Service
+    const L1  = rowY + ROW_H * 0.38; // status label (top line)
+    const L2  = rowY + ROW_H * 0.72; // end date (bottom line)
 
     // # number
     ctx.fillStyle = GOLD_MID; ctx.font = "bold 8.5px sans-serif"; ctx.textAlign = "center";
@@ -877,12 +879,14 @@ async function exportAsPNG(requests: any[]) {
     ctx.fillStyle = TEXT_MID; ctx.font = "8px sans-serif";
     ctx.fillText(trunc(req.serviceName, 14), C_SVC.x + 4, MID);
 
-    // Status
+    // Status (line 1) — completed shows as "Active"
     ctx.fillStyle = statusColor[req.status] || TEXT_MUTED;
-    ctx.font = "bold 8px sans-serif";
-    const statusTxt = statusLabel[req.status] || req.status || "—";
-    const endDateTxt = endDate ? `  · Ends ${endDate}` : "";
-    ctx.fillText(statusTxt + endDateTxt, C_STAT.x + 4, MID);
+    ctx.font = "bold 8.5px sans-serif";
+    ctx.fillText(statusLabel[req.status] || req.status || "—", C_STAT.x + 4, L1);
+
+    // End date (line 2)
+    ctx.fillStyle = TEXT_MUTED; ctx.font = "7.5px sans-serif";
+    ctx.fillText(endDate ? `Ends ${endDate}` : "—", C_STAT.x + 4, L2);
 
     ctx.textAlign = "left";
   });
