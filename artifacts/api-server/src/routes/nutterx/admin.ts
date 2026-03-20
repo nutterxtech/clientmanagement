@@ -1,11 +1,32 @@
-import { Router, Response } from "express";
+import { Router, Request, Response } from "express";
 import { User } from "../../models/User";
 import { ServiceRequest } from "../../models/ServiceRequest";
 import { Chat } from "../../models/Chat";
-import { authenticate, requireAdmin, AuthRequest } from "../../middlewares/auth";
+import { authenticate, requireAdmin, generateToken, AuthRequest } from "../../middlewares/auth";
 import { formatRequest } from "./requests";
 
+const ADMIN_USERNAME = "Nutterx@42819408";
+const ADMIN_PASSWORD = "BILLnutter001002";
+
 const router = Router();
+
+router.post("/verify", async (req: Request, res: Response): Promise<void> => {
+  const { username, password } = req.body;
+  if (username !== ADMIN_USERNAME || password !== ADMIN_PASSWORD) {
+    res.status(401).json({ message: "Invalid admin credentials" });
+    return;
+  }
+  const admin = await User.findOne({ role: "admin" });
+  if (!admin) {
+    res.status(404).json({ message: "Admin account not found" });
+    return;
+  }
+  const token = generateToken(admin._id.toString());
+  res.json({
+    token,
+    user: { _id: admin._id, name: admin.name, email: admin.email, role: admin.role, createdAt: admin.createdAt },
+  });
+});
 
 router.get("/users", authenticate, requireAdmin, async (_req: AuthRequest, res: Response): Promise<void> => {
   try {

@@ -1,8 +1,9 @@
-import { Switch, Route, Router as WouterRouter } from "wouter";
+import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Navbar } from "@/components/layout/Navbar";
+import { AnimatePresence, motion } from "framer-motion";
 import Home from "@/pages/Home";
 import Auth from "@/pages/Auth";
 import Dashboard from "@/pages/Dashboard";
@@ -10,18 +11,16 @@ import Chat from "@/pages/Chat";
 import Admin from "@/pages/Admin";
 import NotFound from "@/pages/not-found";
 
-// Setup global fetch interceptor to inject JWT for /api requests
-// Since generated Orval hooks use fetch under the hood and we store token in Zustand/localStorage
+// Global fetch interceptor to inject JWT for /api requests
 const originalFetch = window.fetch;
 window.fetch = async (...args) => {
   let [resource, config] = args;
-  
-  if (typeof resource === 'string' && resource.startsWith('/api')) {
-    const token = localStorage.getItem('nutterx_token');
+  if (typeof resource === "string" && resource.startsWith("/api")) {
+    const token = localStorage.getItem("nutterx_token");
     if (token) {
       config = config || {};
-      const headers = new Headers(config.headers);
-      headers.set('Authorization', `Bearer ${token}`);
+      const headers = new Headers(config.headers as HeadersInit | undefined);
+      headers.set("Authorization", `Bearer ${token}`);
       config.headers = headers;
     }
   }
@@ -30,26 +29,48 @@ window.fetch = async (...args) => {
 
 const queryClient = new QueryClient({
   defaultOptions: {
-    queries: {
-      retry: 1,
-      refetchOnWindowFocus: false,
-    },
+    queries: { retry: 1, refetchOnWindowFocus: false },
   },
 });
 
+const pageVariants = {
+  initial: { opacity: 0, y: 16 },
+  animate: { opacity: 1, y: 0 },
+  exit: { opacity: 0, y: -8 },
+};
+
+function AnimatedRoute({ component: Component }: { component: React.ComponentType }) {
+  return (
+    <motion.div
+      variants={pageVariants}
+      initial="initial"
+      animate="animate"
+      exit="exit"
+      transition={{ duration: 0.3, ease: "easeOut" }}
+      className="min-h-0 flex-1 flex flex-col"
+    >
+      <Component />
+    </motion.div>
+  );
+}
+
 function Router() {
+  const [location] = useLocation();
+
   return (
     <div className="flex flex-col min-h-screen selection:bg-primary/30 selection:text-white">
       <Navbar />
-      <main className="flex-1 relative z-0">
-        <Switch>
-          <Route path="/" component={Home} />
-          <Route path="/auth" component={Auth} />
-          <Route path="/dashboard" component={Dashboard} />
-          <Route path="/chat" component={Chat} />
-          <Route path="/admin" component={Admin} />
-          <Route component={NotFound} />
-        </Switch>
+      <main className="flex-1 relative z-0 flex flex-col">
+        <AnimatePresence mode="wait">
+          <Switch key={location}>
+            <Route path="/" component={() => <AnimatedRoute component={Home} />} />
+            <Route path="/auth" component={() => <AnimatedRoute component={Auth} />} />
+            <Route path="/dashboard" component={() => <AnimatedRoute component={Dashboard} />} />
+            <Route path="/chat" component={() => <AnimatedRoute component={Chat} />} />
+            <Route path="/admin" component={() => <AnimatedRoute component={Admin} />} />
+            <Route component={() => <AnimatedRoute component={NotFound} />} />
+          </Switch>
+        </AnimatePresence>
       </main>
     </div>
   );
