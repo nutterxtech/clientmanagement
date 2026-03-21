@@ -830,7 +830,10 @@ export default function Dashboard() {
     r => r.subscriptionEndsAt && new Date(r.subscriptionEndsAt) > new Date()
   ) || [];
 
-  const liveRequests = requests?.filter(r => r.status === "in_progress") || [];
+  const liveRequests = requests?.filter(
+    r => r.status === "in_progress" ||
+         (r.subscriptionEndsAt && new Date(r.subscriptionEndsAt) > new Date())
+  ) || [];
 
   const pendingPayments = requests?.filter(
     r => (r as any).paymentRequired && (r as any).paymentStatus !== "paid"
