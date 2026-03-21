@@ -11,7 +11,7 @@ import {
   AlertCircle, ImageDown, UserPlus, Calendar, CheckCircle2, X,
   Settings, Key, Save, Loader2, Trash2, Plus, Edit2, Package,
   CreditCard, TrendingUp, DollarSign, Clock, Star, MessagesSquare,
-  Image, UserCheck, UserX
+  Image, UserCheck, UserX, CalendarDays, CalendarClock, RefreshCw
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
@@ -376,10 +376,134 @@ function ServicesManager() {
   );
 }
 
+// ── Extension Confirm Modal ───────────────────────────────────
+function ExtensionConfirmModal({ ext, onClose, onConfirmed }: { ext: any; onClose: () => void; onConfirmed: () => void }) {
+  const [deadline, setDeadline] = useState(
+    ext.newDeadline
+      ? new Date(ext.newDeadline).toISOString().split("T")[0]
+      : (ext.serviceRequest?.subscriptionEndsAt
+          ? new Date(ext.serviceRequest.subscriptionEndsAt).toISOString().split("T")[0]
+          : "")
+  );
+  const [notes, setNotes]     = useState(ext.adminNotes || "");
+  const [loading, setLoading] = useState(false);
+  const [error, setError]     = useState("");
+
+  const handleConfirm = async () => {
+    setError(""); setLoading(true);
+    try {
+      const token = localStorage.getItem("nutterx_token");
+      const res   = await fetch(`/api/extensions/admin/${ext._id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ adminConfirmed: true, adminNotes: notes, newDeadline: deadline || undefined }),
+      });
+      if (!res.ok) { const d = await res.json(); throw new Error(d.message || "Failed"); }
+      onConfirmed();
+      onClose();
+    } catch (e: any) { setError(e.message); }
+    finally { setLoading(false); }
+  };
+
+  const statusColor: Record<string, string> = {
+    paid: "text-emerald-400 bg-emerald-500/10 border-emerald-500/20",
+    unpaid: "text-amber-400 bg-amber-500/10 border-amber-500/20",
+    pending: "text-blue-400 bg-blue-500/10 border-blue-500/20",
+    failed: "text-red-400 bg-red-500/10 border-red-500/20",
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+      <motion.div initial={{ opacity: 0, y: 40, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 20 }}
+        className="w-full max-w-md bg-card border border-border rounded-3xl p-6 shadow-2xl">
+        <div className="flex items-center justify-between mb-5">
+          <h3 className="text-base font-bold">Confirm Extension Payment</h3>
+          <button onClick={onClose} className="w-8 h-8 rounded-xl bg-secondary flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Extension summary */}
+        <div className="p-4 bg-indigo-500/8 border border-indigo-500/20 rounded-2xl mb-5 space-y-2.5">
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-muted-foreground">Client</span>
+            <span className="text-sm font-semibold">{ext.user?.name || "—"}</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-muted-foreground">Service</span>
+            <span className="text-sm font-semibold truncate max-w-[180px]">{ext.serviceName}</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-muted-foreground">Amount Paid</span>
+            <span className="text-sm font-bold text-emerald-400">KES {(ext.amount || 0).toLocaleString()}</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-muted-foreground">Payment Status</span>
+            <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full border ${statusColor[ext.paymentStatus] || "text-muted-foreground bg-secondary border-border"}`}>
+              {ext.paymentStatus}
+            </span>
+          </div>
+          <div className="pt-2 border-t border-indigo-500/15">
+            <div className="text-xs text-muted-foreground mb-1 font-semibold uppercase tracking-wider">Purpose / Reason</div>
+            <div className="text-sm leading-relaxed text-foreground/90">{ext.purpose}</div>
+          </div>
+        </div>
+
+        {/* New deadline */}
+        <div className="mb-4">
+          <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5 mb-2">
+            <CalendarDays className="w-3.5 h-3.5" /> Set New Service Deadline
+          </label>
+          <input
+            type="date" value={deadline} onChange={e => setDeadline(e.target.value)}
+            className="w-full h-10 rounded-xl bg-secondary/50 border border-border px-3 text-sm focus:outline-none focus:border-primary/50 transition-colors"
+          />
+          {ext.serviceRequest?.subscriptionEndsAt && (
+            <p className="text-xs text-muted-foreground mt-1">Current deadline: {formatDate(ext.serviceRequest.subscriptionEndsAt)}</p>
+          )}
+        </div>
+
+        {/* Admin notes */}
+        <div className="mb-5">
+          <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-2">Notes (optional)</label>
+          <textarea value={notes} onChange={e => setNotes(e.target.value)}
+            placeholder="Add any notes for your records..."
+            className="w-full rounded-xl bg-secondary/50 border border-border p-3 text-sm min-h-[70px] focus:outline-none focus:border-primary/50 resize-none transition-colors" />
+        </div>
+
+        {error && <p className="text-red-400 text-xs mb-3 text-center">{error}</p>}
+
+        <div className="flex gap-2">
+          <Button variant="ghost" className="flex-1 h-10" onClick={onClose}>Cancel</Button>
+          <Button variant="gradient" className="flex-1 h-10" onClick={handleConfirm} disabled={loading}>
+            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4 mr-1.5" />}
+            Confirm & Update Deadline
+          </Button>
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
 // ── Payments Panel ────────────────────────────────────────────
 function PaymentsPanel() {
-  const [data, setData] = useState<{ statements: any[]; totalRevenue: number; pendingAmount: number } | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [data, setData]           = useState<{ statements: any[]; totalRevenue: number; pendingAmount: number } | null>(null);
+  const [loading, setLoading]     = useState(true);
+  const [extensions, setExts]     = useState<any[]>([]);
+  const [extsLoading, setExtsLoading] = useState(true);
+  const [confirmingExt, setConfirmingExt] = useState<any>(null);
+
+  const loadAll = () => {
+    const token = localStorage.getItem("nutterx_token");
+    fetch("/api/admin/payments", { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(d => { setData(d); setLoading(false); })
+      .catch(() => setLoading(false));
+    fetch("/api/extensions/admin", { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(d => { setExts(Array.isArray(d) ? d : []); setExtsLoading(false); })
+      .catch(() => setExtsLoading(false));
+  };
 
   useEffect(() => {
     const token = localStorage.getItem("nutterx_token");
@@ -387,6 +511,10 @@ function PaymentsPanel() {
       .then(r => r.json())
       .then(d => { setData(d); setLoading(false); })
       .catch(() => setLoading(false));
+    fetch("/api/extensions/admin", { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(d => { setExts(Array.isArray(d) ? d : []); setExtsLoading(false); })
+      .catch(() => setExtsLoading(false));
   }, []);
 
   if (loading) return <div className="flex justify-center py-16"><Loader2 className="w-7 h-7 animate-spin text-primary" /></div>;
@@ -462,6 +590,98 @@ function PaymentsPanel() {
           </table>
         </div>
       )}
+
+      {/* ── Extension / Advance Payments ─────────────────────── */}
+      <div className="mt-10">
+        <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
+          <h3 className="text-base font-bold flex items-center gap-2">
+            <CalendarClock className="w-5 h-5 text-indigo-400" /> Advance Payments (Service Extensions)
+          </h3>
+          <button onClick={loadAll} className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-secondary border border-border text-xs text-muted-foreground hover:text-foreground transition-colors">
+            <RefreshCw className="w-3.5 h-3.5" /> Refresh
+          </button>
+        </div>
+
+        {extsLoading ? (
+          <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>
+        ) : extensions.length === 0 ? (
+          <p className="text-center text-muted-foreground py-8 text-sm">No advance payment requests yet.</p>
+        ) : (
+          <div className="space-y-3">
+            {extensions.map((ext, i) => {
+              const isPaid = ext.paymentStatus === "paid";
+              const needsAction = isPaid && !ext.adminConfirmed;
+              return (
+                <motion.div key={ext._id} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.04 }}
+                  className={`rounded-2xl border p-4 transition-colors ${needsAction ? "bg-indigo-500/8 border-indigo-500/30" : "bg-secondary/20 border-border"}`}>
+                  <div className="flex flex-col sm:flex-row sm:items-start gap-3">
+
+                    {/* Left: client + service info */}
+                    <div className="flex-1 min-w-0 space-y-1.5">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-bold text-sm">{ext.user?.name || "—"}</span>
+                        <span className="text-xs text-muted-foreground">{ext.user?.email || ""}</span>
+                        {needsAction && (
+                          <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/25 text-amber-400 animate-pulse">
+                            ACTION NEEDED
+                          </span>
+                        )}
+                        {ext.adminConfirmed && (
+                          <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
+                            Confirmed
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-sm font-semibold text-foreground/90">{ext.serviceName}</div>
+                      <div className="p-2.5 bg-secondary/40 border border-border rounded-xl">
+                        <div className="text-xs text-muted-foreground font-semibold uppercase tracking-wider mb-1">Purpose / Reason</div>
+                        <div className="text-sm leading-relaxed">{ext.purpose}</div>
+                      </div>
+                      {ext.adminNotes && (
+                        <div className="text-xs text-primary/80 bg-primary/5 border border-primary/10 rounded-lg px-2.5 py-1.5">
+                          Admin note: {ext.adminNotes}
+                        </div>
+                      )}
+                      {ext.newDeadline && (
+                        <div className="flex items-center gap-1.5 text-xs text-emerald-400">
+                          <CalendarDays className="w-3.5 h-3.5" /> New deadline set: {formatDate(ext.newDeadline)}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Right: amount, status, action */}
+                    <div className="flex sm:flex-col items-center sm:items-end gap-2 sm:gap-2 shrink-0">
+                      <div className="text-lg font-bold text-emerald-400 whitespace-nowrap">KES {(ext.amount || 0).toLocaleString()}</div>
+                      <span className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${statusColor[ext.paymentStatus] || "text-muted-foreground bg-secondary border-border"}`}>
+                        {ext.paymentStatus}
+                      </span>
+                      <div className="text-xs text-muted-foreground whitespace-nowrap">{formatDate(ext.createdAt)}</div>
+                      {isPaid && !ext.adminConfirmed && (
+                        <button
+                          onClick={() => setConfirmingExt(ext)}
+                          className="mt-1 flex items-center gap-1.5 px-3 py-2 rounded-xl bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-semibold transition-colors whitespace-nowrap"
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5" /> Confirm & Update
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </motion.div>
+              );
+            })}
+          </div>
+        )}
+
+        <AnimatePresence>
+          {confirmingExt && (
+            <ExtensionConfirmModal
+              ext={confirmingExt}
+              onClose={() => setConfirmingExt(null)}
+              onConfirmed={loadAll}
+            />
+          )}
+        </AnimatePresence>
+      </div>
     </motion.div>
   );
 }

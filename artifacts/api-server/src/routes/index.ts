@@ -8,6 +8,7 @@ import adminRouter from "./nutterx/admin";
 import usersRouter from "./nutterx/users";
 import contactRouter from "./nutterx/contact";
 import paymentRouter from "./nutterx/payment";
+import extensionsRouter from "./nutterx/extensions";
 
 const router: IRouter = Router();
 
@@ -20,5 +21,6 @@ router.use("/admin", adminRouter);
 router.use("/users", usersRouter);
 router.use("/support", contactRouter);
 router.use("/payment", paymentRouter);
+router.use("/extensions", extensionsRouter);
 
 export default router;

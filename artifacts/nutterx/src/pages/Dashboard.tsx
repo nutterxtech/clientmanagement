@@ -9,7 +9,8 @@ import { cn } from "@/lib/utils";
 import {
   Plus, Clock, FileText, CheckCircle, Loader2, X,
   MessageSquare, Globe, TrendingUp, Send, ShoppingCart, Zap,
-  ChevronRight, Smartphone, Lock, CheckCircle2, AlertCircle, Award
+  ChevronRight, Smartphone, Lock, CheckCircle2, AlertCircle, Award,
+  CalendarClock, ArrowUpRight, DollarSign, RefreshCw
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useForm } from "react-hook-form";
@@ -544,6 +545,251 @@ function downloadMembershipCertificate(user: any, requests: any[]) {
   }, "image/png");
 }
 
+// ── Extend Service Modal ─────────────────────────────────────
+type ExtStep = "form" | "sending" | "pesapal" | "waiting" | "success" | "failed";
+
+function ExtendModal({ liveRequests, onClose }: { liveRequests: any[]; onClose: () => void }) {
+  const [step, setStep]             = useState<ExtStep>("form");
+  const [selectedId, setSelectedId] = useState(liveRequests[0]?._id || "");
+  const [purpose, setPurpose]       = useState("");
+  const [amount, setAmount]         = useState("");
+  const [error, setError]           = useState("");
+  const [extensionId, setExtId]     = useState("");
+  const [redirectUrl, setRedirUrl]  = useState("");
+  const { toast } = useToast();
+
+  const selectedReq = liveRequests.find(r => r._id === selectedId);
+
+  const handlePay = async () => {
+    if (!selectedId || !purpose.trim() || !amount) { setError("Please fill in all fields."); return; }
+    const amt = Number(amount);
+    if (isNaN(amt) || amt < 1) { setError("Enter a valid amount (min KES 1)."); return; }
+    setError(""); setStep("sending");
+    try {
+      const token = localStorage.getItem("nutterx_token");
+      const res   = await fetch("/api/extensions/initiate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ serviceRequestId: selectedId, purpose: purpose.trim(), amount: amt }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Payment initiation failed");
+      setExtId(data.extensionId);
+      setRedirUrl(data.redirectUrl || "");
+      setStep("pesapal");
+    } catch (err: any) {
+      setError(err.message); setStep("form");
+    }
+  };
+
+  useEffect(() => {
+    if (!extensionId || step === "form" || step === "sending" || step === "success" || step === "failed") return;
+    let attempts = 0;
+    const interval = setInterval(async () => {
+      attempts++;
+      try {
+        const token = localStorage.getItem("nutterx_token");
+        const res   = await fetch(`/api/extensions/status/${extensionId}`, { headers: { Authorization: `Bearer ${token}` } });
+        const data  = await res.json();
+        if (data.paymentStatus === "paid") {
+          clearInterval(interval); setStep("success");
+          toast({ title: "Payment received!", description: "Admin will confirm and update your deadline shortly." });
+        } else if (data.paymentStatus === "failed" || attempts >= 72) {
+          clearInterval(interval); setStep("failed");
+        }
+      } catch { /* keep polling */ }
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [extensionId, step]);
+
+  const isPesapal = step === "pesapal";
+
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-sm"
+      onClick={e => { if (e.target === e.currentTarget && step !== "sending" && step !== "waiting") onClose(); }}>
+      <motion.div
+        initial={{ y: 40, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 40, opacity: 0 }}
+        transition={{ type: "spring", stiffness: 300, damping: 30 }}
+        className={cn("bg-card border border-border rounded-t-3xl sm:rounded-3xl w-full shadow-2xl", isPesapal ? "sm:max-w-lg" : "sm:max-w-md")}
+      >
+        <div className="flex justify-center pt-3 pb-1 sm:hidden"><div className="w-10 h-1 rounded-full bg-border" /></div>
+        <div className={cn("p-6", isPesapal && "p-4")}>
+
+          {/* Header */}
+          {isPesapal ? (
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <h3 className="font-bold text-base">Complete M-Pesa Payment</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">Enter your number in the form below &amp; tap <strong>Proceed</strong></p>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="text-xs font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-2.5 py-1">
+                  KES {Number(amount).toLocaleString()}
+                </div>
+                <button onClick={onClose} className="w-8 h-8 rounded-full bg-secondary/60 flex items-center justify-center hover:bg-secondary transition-colors">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between mb-5">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center">
+                  <CalendarClock className="w-5 h-5 text-indigo-400" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base">Pay in Advance</h3>
+                  <p className="text-xs text-muted-foreground">Extend or renew a live service</p>
+                </div>
+              </div>
+              <button onClick={onClose} className="w-8 h-8 rounded-full bg-secondary/60 flex items-center justify-center hover:bg-secondary transition-colors">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
+          <AnimatePresence mode="wait">
+            {/* Form step */}
+            {step === "form" && (
+              <motion.div key="form" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-4">
+                {/* Service picker */}
+                <div>
+                  <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground block mb-2">Live Service</label>
+                  <div className="space-y-2">
+                    {liveRequests.map(r => (
+                      <button key={r._id} type="button" onClick={() => setSelectedId(r._id)}
+                        className={cn(
+                          "w-full flex items-center gap-3 px-4 py-3 rounded-xl border text-left transition-colors",
+                          selectedId === r._id ? "bg-indigo-500/10 border-indigo-500/30" : "bg-secondary/30 border-border hover:bg-secondary/50"
+                        )}>
+                        <div className={cn("w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors",
+                          selectedId === r._id ? "bg-indigo-500 border-indigo-500" : "border-muted-foreground/40")}>
+                          {selectedId === r._id && <CheckCircle2 className="w-3 h-3 text-white" />}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="font-semibold text-sm truncate">{r.serviceName}</div>
+                          {r.subscriptionEndsAt && (
+                            <div className="text-xs text-muted-foreground">Deadline: {formatDate(r.subscriptionEndsAt)}</div>
+                          )}
+                        </div>
+                        <span className="text-xs font-semibold text-blue-400 bg-blue-500/10 border border-blue-500/20 px-2 py-0.5 rounded-full shrink-0">Live</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Purpose */}
+                <div>
+                  <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground block mb-2">What is this payment for? *</label>
+                  <textarea
+                    value={purpose}
+                    onChange={e => setPurpose(e.target.value)}
+                    placeholder="e.g. Extend deadline by 30 days, Continue service for next month, Additional feature development..."
+                    className="w-full rounded-xl bg-secondary/50 border border-border p-3 text-sm min-h-[80px] focus:outline-none focus:border-primary/50 resize-none transition-colors"
+                  />
+                </div>
+
+                {/* Amount */}
+                <div>
+                  <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground block mb-2">Amount (KES) *</label>
+                  <div className="relative">
+                    <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground font-semibold text-sm">KES</span>
+                    <input
+                      type="number" min="1" value={amount} onChange={e => setAmount(e.target.value)}
+                      placeholder="0"
+                      className="w-full h-11 rounded-xl bg-secondary/50 border border-border pl-14 pr-4 text-sm font-bold focus:outline-none focus:border-primary/50 transition-colors"
+                    />
+                  </div>
+                </div>
+
+                {error && (
+                  <div className="flex items-center gap-2 text-destructive text-xs bg-destructive/10 border border-destructive/20 rounded-xl px-3 py-2.5">
+                    <AlertCircle className="w-4 h-4 shrink-0" />{error}
+                  </div>
+                )}
+
+                {/* Info note */}
+                <div className="p-3 bg-indigo-500/5 border border-indigo-500/20 rounded-xl text-xs text-indigo-300/80 leading-relaxed flex gap-2">
+                  <ArrowUpRight className="w-4 h-4 shrink-0 mt-0.5 text-indigo-400" />
+                  <span>After payment, the admin will review your request, confirm the payment, and update your service deadline accordingly.</span>
+                </div>
+
+                <div className="flex gap-2.5">
+                  <Button variant="outline" className="flex-1 h-11" onClick={onClose}>Cancel</Button>
+                  <Button variant="gradient" className="flex-1 h-11 gap-2" onClick={handlePay}>
+                    <Lock className="w-4 h-4" /> Pay KES {amount ? Number(amount).toLocaleString() : "—"}
+                  </Button>
+                </div>
+              </motion.div>
+            )}
+
+            {step === "sending" && (
+              <motion.div key="sending" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="text-center py-8">
+                <div className="relative w-20 h-20 mx-auto mb-5">
+                  <div className="absolute inset-0 rounded-full border-4 border-primary/20" />
+                  <div className="absolute inset-0 rounded-full border-4 border-t-primary animate-spin" />
+                  <div className="absolute inset-0 flex items-center justify-center"><Loader2 className="w-8 h-8 text-primary animate-spin" /></div>
+                </div>
+                <h3 className="text-lg font-bold mb-2">Preparing payment…</h3>
+                <p className="text-sm text-muted-foreground">Opening secure M-Pesa payment form.</p>
+              </motion.div>
+            )}
+
+            {step === "pesapal" && redirectUrl && (
+              <motion.div key="pesapal" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                <div className="rounded-xl overflow-hidden border border-border bg-white" style={{ height: 480 }}>
+                  <iframe src={redirectUrl} width="100%" height="100%" style={{ border: "none", display: "block" }} title="M-Pesa Payment" />
+                </div>
+                <p className="text-xs text-muted-foreground text-center mt-3 flex items-center justify-center gap-1.5">
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin-slow" /> Waiting for payment confirmation…
+                </p>
+              </motion.div>
+            )}
+
+            {step === "waiting" && (
+              <motion.div key="waiting" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="text-center py-8">
+                <div className="relative w-20 h-20 mx-auto mb-5">
+                  <div className="absolute inset-0 rounded-full border-4 border-primary/20" />
+                  <div className="absolute inset-0 rounded-full border-4 border-t-primary animate-spin" />
+                </div>
+                <h3 className="text-lg font-bold mb-2">Confirming payment…</h3>
+                <p className="text-sm text-muted-foreground">Please wait while we verify your M-Pesa transaction.</p>
+              </motion.div>
+            )}
+
+            {step === "success" && (
+              <motion.div key="success" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }} className="text-center py-8">
+                <div className="w-20 h-20 rounded-full bg-emerald-500/10 border-2 border-emerald-500/30 flex items-center justify-center mx-auto mb-5">
+                  <CheckCircle2 className="w-10 h-10 text-emerald-400" />
+                </div>
+                <h3 className="text-xl font-bold mb-2 text-emerald-400">Payment Received!</h3>
+                <p className="text-sm text-muted-foreground mb-1">KES {Number(amount).toLocaleString()} for <strong>{selectedReq?.serviceName}</strong></p>
+                <p className="text-xs text-muted-foreground mb-6">The admin has been notified and will update your deadline shortly.</p>
+                <Button variant="gradient" className="h-11 px-8" onClick={onClose}>Done</Button>
+              </motion.div>
+            )}
+
+            {step === "failed" && (
+              <motion.div key="failed" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="text-center py-8">
+                <div className="w-20 h-20 rounded-full bg-red-500/10 border-2 border-red-500/30 flex items-center justify-center mx-auto mb-5">
+                  <AlertCircle className="w-10 h-10 text-red-400" />
+                </div>
+                <h3 className="text-xl font-bold mb-2 text-red-400">Payment Failed</h3>
+                <p className="text-sm text-muted-foreground mb-6">The payment could not be confirmed. Please try again.</p>
+                <div className="flex gap-2 justify-center">
+                  <Button variant="outline" className="h-10" onClick={onClose}>Close</Button>
+                  <Button variant="gradient" className="h-10" onClick={() => { setStep("form"); setExtId(""); setRedirUrl(""); }}>Try Again</Button>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
 // ── Main Dashboard ───────────────────────────────────────────
 export default function Dashboard() {
   const { user } = useAuth();
@@ -553,6 +799,7 @@ export default function Dashboard() {
   const [selectedService, setSelectedService] = useState<any>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [payingRequest, setPayingRequest] = useState<any>(null);
+  const [showExtendModal, setShowExtendModal] = useState(false);
   const createRequest = useCreateRequest();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -582,6 +829,8 @@ export default function Dashboard() {
   const activeSubscriptions = requests?.filter(
     r => r.subscriptionEndsAt && new Date(r.subscriptionEndsAt) > new Date()
   ) || [];
+
+  const liveRequests = requests?.filter(r => r.status === "in_progress") || [];
 
   const pendingPayments = requests?.filter(
     r => (r as any).paymentRequired && (r as any).paymentStatus !== "paid"
@@ -684,6 +933,41 @@ export default function Dashboard() {
               ))}
             </div>
           </div>
+        )}
+
+        {/* ── Pay in Advance / Extend Service ─────────────────── */}
+        {liveRequests.length > 0 && (
+          <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}
+            className="mb-8 rounded-2xl border border-indigo-500/25 bg-gradient-to-r from-indigo-500/8 via-indigo-500/5 to-transparent overflow-hidden">
+            <div className="p-5 flex flex-col sm:flex-row sm:items-center gap-4">
+              <div className="flex items-center gap-4 flex-1 min-w-0">
+                <div className="w-11 h-11 rounded-2xl bg-indigo-500/15 border border-indigo-500/25 flex items-center justify-center shrink-0">
+                  <CalendarClock className="w-6 h-6 text-indigo-400" />
+                </div>
+                <div className="min-w-0">
+                  <div className="font-bold text-sm text-indigo-300">Pay in Advance to Extend Your Service</div>
+                  <div className="text-xs text-muted-foreground mt-0.5">
+                    You have <span className="font-semibold text-indigo-300">{liveRequests.length}</span> live service{liveRequests.length !== 1 ? "s" : ""}.
+                    {" "}Pay now to extend the deadline — admin will confirm and update it for you.
+                  </div>
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {liveRequests.map(r => (
+                      <span key={r._id} className="inline-flex items-center gap-1 text-xs px-2.5 py-0.5 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400 font-medium">
+                        <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse inline-block" />
+                        {r.serviceName}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <Button
+                onClick={() => setShowExtendModal(true)}
+                className="bg-indigo-500 hover:bg-indigo-600 text-white border-0 h-10 px-5 gap-2 shrink-0 self-start sm:self-center"
+              >
+                <DollarSign className="w-4 h-4" /> Pay in Advance
+              </Button>
+            </div>
+          </motion.div>
         )}
 
         {/* Available Services */}
@@ -856,6 +1140,16 @@ export default function Dashboard() {
             request={payingRequest}
             onClose={() => setPayingRequest(null)}
             onPaid={() => { refetch(); queryClient.invalidateQueries({ queryKey: ["/api/requests"] }); }}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Extend Service Modal */}
+      <AnimatePresence>
+        {showExtendModal && liveRequests.length > 0 && (
+          <ExtendModal
+            liveRequests={liveRequests}
+            onClose={() => setShowExtendModal(false)}
           />
         )}
       </AnimatePresence>
