@@ -522,6 +522,7 @@ function PaymentsPanel() {
   const [extsLoading, setExtsLoading] = useState(true);
   const [confirmingExt, setConfirmingExt] = useState<any>(null);
   const [markingPaidId, setMarkingPaidId] = useState<string | null>(null);
+  const [deletingExtId, setDeletingExtId] = useState<string | null>(null);
 
   const loadAll = () => {
     const token = localStorage.getItem("nutterx_token");
@@ -719,6 +720,31 @@ function PaymentsPanel() {
                           className="mt-1 flex items-center gap-1.5 px-3 py-2 rounded-xl bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-semibold transition-colors whitespace-nowrap"
                         >
                           <CalendarDays className="w-3.5 h-3.5" /> Confirm & Update
+                        </button>
+                      )}
+
+                      {/* Delete button for failed / pending / unpaid */}
+                      {["unpaid", "pending", "failed"].includes(ext.paymentStatus) && (
+                        <button
+                          disabled={deletingExtId === ext._id}
+                          onClick={async () => {
+                            if (!confirm(`Delete this ${ext.paymentStatus} transaction for KES ${(ext.amount || 0).toLocaleString()}?`)) return;
+                            setDeletingExtId(ext._id);
+                            try {
+                              const token = localStorage.getItem("nutterx_token");
+                              const res = await fetch(`/api/extensions/admin/${ext._id}`, {
+                                method: "DELETE",
+                                headers: { Authorization: `Bearer ${token}` },
+                              });
+                              if (res.ok) loadAll();
+                            } finally { setDeletingExtId(null); }
+                          }}
+                          className="mt-1 flex items-center gap-1.5 px-3 py-2 rounded-xl bg-red-500/15 border border-red-500/30 hover:bg-red-500/25 disabled:opacity-50 text-red-400 text-xs font-semibold transition-colors whitespace-nowrap"
+                        >
+                          {deletingExtId === ext._id
+                            ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            : <Trash2 className="w-3.5 h-3.5" />}
+                          Delete
                         </button>
                       )}
                     </div>

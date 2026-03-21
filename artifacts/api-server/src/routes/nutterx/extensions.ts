@@ -239,4 +239,20 @@ router.patch("/admin/:id", authenticate, requireAdmin, async (req: AuthRequest, 
   }
 });
 
+// ── DELETE /api/extensions/admin/:id  (admin: remove failed/pending) ──
+router.delete("/admin/:id", authenticate, requireAdmin, async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const ext = await DeadlinePayment.findById(req.params.id);
+    if (!ext) { res.status(404).json({ message: "Not found" }); return; }
+    const deletable = ["unpaid", "pending", "failed"];
+    if (!deletable.includes(ext.paymentStatus)) {
+      res.status(400).json({ message: "Only failed or pending transactions can be deleted" }); return;
+    }
+    await DeadlinePayment.findByIdAndDelete(ext._id);
+    res.json({ message: "Deleted" });
+  } catch (err: any) {
+    res.status(500).json({ message: err.message || "Delete failed" });
+  }
+});
+
 export default router;
