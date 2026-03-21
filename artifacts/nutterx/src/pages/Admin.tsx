@@ -473,12 +473,41 @@ function ExtensionConfirmModal({ ext, onClose, onConfirmed }: { ext: any; onClos
 
         {error && <p className="text-red-400 text-xs mb-3 text-center">{error}</p>}
 
-        <div className="flex gap-2">
-          <Button variant="ghost" className="flex-1 h-10" onClick={onClose}>Cancel</Button>
-          <Button variant="gradient" className="flex-1 h-10" onClick={handleConfirm} disabled={loading}>
-            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4 mr-1.5" />}
-            Confirm & Update Deadline
-          </Button>
+        <div className="flex flex-col gap-2">
+          {/* If not yet paid by system, allow admin to mark as paid first */}
+          {ext.paymentStatus !== "paid" && (
+            <button
+              disabled={loading}
+              onClick={async () => {
+                setError(""); setLoading(true);
+                try {
+                  const token = localStorage.getItem("nutterx_token");
+                  const res = await fetch(`/api/extensions/admin/${ext._id}`, {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                    body: JSON.stringify({ markPaid: true }),
+                  });
+                  if (!res.ok) { const d = await res.json(); throw new Error(d.message || "Failed"); }
+                  onConfirmed(); onClose();
+                } catch (e: any) { setError(e.message); }
+                finally { setLoading(false); }
+              }}
+              className="w-full h-10 flex items-center justify-center gap-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-sm font-semibold transition-colors"
+            >
+              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+              Mark as Paid (System didn't confirm)
+            </button>
+          )}
+          <div className="flex gap-2">
+            <Button variant="ghost" className="flex-1 h-10" onClick={onClose}>Cancel</Button>
+            <Button variant="gradient" className="flex-1 h-10" onClick={handleConfirm} disabled={loading || ext.paymentStatus !== "paid"}>
+              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <CalendarDays className="w-4 h-4 mr-1.5" />}
+              Confirm & Update Deadline
+            </Button>
+          </div>
+          {ext.paymentStatus !== "paid" && (
+            <p className="text-xs text-muted-foreground text-center">Mark as paid first, then confirm the deadline update.</p>
+          )}
         </div>
       </motion.div>
     </div>
@@ -492,6 +521,7 @@ function PaymentsPanel() {
   const [extensions, setExts]     = useState<any[]>([]);
   const [extsLoading, setExtsLoading] = useState(true);
   const [confirmingExt, setConfirmingExt] = useState<any>(null);
+  const [markingPaidId, setMarkingPaidId] = useState<string | null>(null);
 
   const loadAll = () => {
     const token = localStorage.getItem("nutterx_token");
@@ -656,12 +686,39 @@ function PaymentsPanel() {
                         {ext.paymentStatus}
                       </span>
                       <div className="text-xs text-muted-foreground whitespace-nowrap">{formatDate(ext.createdAt)}</div>
+
+                      {/* Admin manually marks as paid if system didn't */}
+                      {!isPaid && (
+                        <button
+                          disabled={markingPaidId === ext._id}
+                          onClick={async () => {
+                            setMarkingPaidId(ext._id);
+                            try {
+                              const token = localStorage.getItem("nutterx_token");
+                              const res = await fetch(`/api/extensions/admin/${ext._id}`, {
+                                method: "PATCH",
+                                headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                                body: JSON.stringify({ markPaid: true }),
+                              });
+                              if (res.ok) loadAll();
+                            } finally { setMarkingPaidId(null); }
+                          }}
+                          className="mt-1 flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-semibold transition-colors whitespace-nowrap"
+                        >
+                          {markingPaidId === ext._id
+                            ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            : <CheckCircle2 className="w-3.5 h-3.5" />}
+                          Mark as Paid
+                        </button>
+                      )}
+
+                      {/* Confirm & update deadline once paid */}
                       {isPaid && !ext.adminConfirmed && (
                         <button
                           onClick={() => setConfirmingExt(ext)}
                           className="mt-1 flex items-center gap-1.5 px-3 py-2 rounded-xl bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-semibold transition-colors whitespace-nowrap"
                         >
-                          <CheckCircle2 className="w-3.5 h-3.5" /> Confirm & Update
+                          <CalendarDays className="w-3.5 h-3.5" /> Confirm & Update
                         </button>
                       )}
                     </div>

@@ -210,10 +210,10 @@ router.get("/admin", authenticate, requireAdmin, async (_req: AuthRequest, res: 
   }
 });
 
-// ── PATCH /api/extensions/admin/:id  (admin: confirm + set deadline) ──
+// ── PATCH /api/extensions/admin/:id  (admin: confirm + set deadline + mark paid) ──
 router.patch("/admin/:id", authenticate, requireAdmin, async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const { adminConfirmed, adminNotes, newDeadline } = req.body;
+    const { adminConfirmed, adminNotes, newDeadline, markPaid } = req.body;
     const ext = await DeadlinePayment.findById(req.params.id);
     if (!ext) { res.status(404).json({ message: "Not found" }); return; }
 
@@ -221,6 +221,7 @@ router.patch("/admin/:id", authenticate, requireAdmin, async (req: AuthRequest, 
     if (adminNotes    !== undefined) update.adminNotes    = adminNotes;
     if (adminConfirmed)              update.adminConfirmed = true;
     if (newDeadline)                 update.newDeadline    = new Date(newDeadline);
+    if (markPaid)                    update.paymentStatus  = "paid";
 
     // If admin confirms and sets a new deadline, update the service request deadline too
     if (adminConfirmed && newDeadline) {
