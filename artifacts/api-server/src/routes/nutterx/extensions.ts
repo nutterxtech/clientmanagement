@@ -75,8 +75,9 @@ router.post("/initiate", authenticate, async (req: AuthRequest, res: Response): 
     if (ownerId !== req.user?._id.toString()) {
       res.status(403).json({ message: "Not authorized" }); return;
     }
-    if (svcReq.status !== "in_progress") {
-      res.status(400).json({ message: "Only live (in-progress) services can receive advance payments" }); return;
+    const allowedStatuses = ["in_progress", "completed"];
+    if (!allowedStatuses.includes(svcReq.status)) {
+      res.status(400).json({ message: "Only active or completed (live) services can receive advance payments" }); return;
     }
 
     const creds = await getCreds();

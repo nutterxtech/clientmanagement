@@ -832,6 +832,7 @@ export default function Dashboard() {
 
   const liveRequests = requests?.filter(
     r => r.status === "in_progress" ||
+         r.status === "completed" ||
          (r.subscriptionEndsAt && new Date(r.subscriptionEndsAt) > new Date())
   ) || [];
 
