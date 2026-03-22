@@ -429,11 +429,18 @@ function downloadMembershipCertificate(user: any, requests: any[]) {
     pending:     "Pending",
     in_progress: "Running",
     completed:   "Completed",
+    expired:     "Expired",
   };
   const statusColor: Record<string, string> = {
     pending:     "#b87000",
     in_progress: "#1a5ca8",
     completed:   "#0a7a30",
+    expired:     "#9b2020",
+  };
+
+  const resolveStatus = (r: any): string => {
+    if (r.subscriptionEndsAt && new Date(r.subscriptionEndsAt) < new Date()) return "expired";
+    return r.status || "pending";
   };
 
   // ── Service rows ──────────────────────────────
@@ -446,7 +453,7 @@ function downloadMembershipCertificate(user: any, requests: any[]) {
       const rowY   = tableTop + 28 + i * ROW_H;
       const isEven = i % 2 === 0;
       const MID    = rowY + ROW_H * 0.60;
-      const status = r.status || "pending";
+      const status = resolveStatus(r);
 
       ctx.fillStyle = isEven ? CREAM : ROW_ALT;
       ctx.fillRect(PAD, rowY, CW, ROW_H);

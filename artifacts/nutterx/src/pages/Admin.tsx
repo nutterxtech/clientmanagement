@@ -1251,12 +1251,19 @@ async function exportAsPNG(requests: any[]) {
     in_progress: "#0a5020",
     pending:     "#7a4000",
     cancelled:   "#7a0a0a",
+    expired:     "#9b2020",
   };
   const statusLabel: Record<string, string> = {
     completed:   "Active",
     in_progress: "Active",
     pending:     "Pending",
     cancelled:   "Cancelled",
+    expired:     "Expired",
+  };
+
+  const resolveReqStatus = (req: any): string => {
+    if (req.subscriptionEndsAt && new Date(req.subscriptionEndsAt) < new Date()) return "expired";
+    return req.status || "pending";
   };
 
   const trunc = (s: string, n: number) => !s ? "—" : s.length > n ? s.slice(0, n) + "…" : s;
@@ -1270,6 +1277,7 @@ async function exportAsPNG(requests: any[]) {
     const isEven = i % 2 === 0;
     const user  = req.user as any;
     const endDate = fmtDate(req.subscriptionEndsAt);
+    const resolvedStatus = resolveReqStatus(req);
 
     // Row background
     ctx.fillStyle = isEven ? CREAM : ROW_ALT;
@@ -1295,10 +1303,10 @@ async function exportAsPNG(requests: any[]) {
     ctx.fillStyle = TEXT_MID; ctx.font = "8px sans-serif";
     ctx.fillText(trunc(req.serviceName, 14), C_SVC.x + 4, MID);
 
-    // Status (line 1) — completed shows as "Active"
-    ctx.fillStyle = statusColor[req.status] || TEXT_MUTED;
+    // Status (line 1) — expired shows as "Expired", completed/in_progress as "Active"
+    ctx.fillStyle = statusColor[resolvedStatus] || TEXT_MUTED;
     ctx.font = "bold 8.5px sans-serif";
-    ctx.fillText(statusLabel[req.status] || req.status || "—", C_STAT.x + 4, L1);
+    ctx.fillText(statusLabel[resolvedStatus] || resolvedStatus || "—", C_STAT.x + 4, L1);
 
     // End date (line 2)
     ctx.fillStyle = TEXT_MUTED; ctx.font = "7.5px sans-serif";
