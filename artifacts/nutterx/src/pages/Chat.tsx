@@ -217,7 +217,9 @@ export default function Chat() {
     ? [...chats].sort((a: any, b: any) => {
         if (isAdminChat(a) && !isAdminChat(b)) return -1;
         if (!isAdminChat(a) && isAdminChat(b)) return 1;
-        return 0;
+        const aTime = a.lastMessage?.createdAt ? new Date(a.lastMessage.createdAt).getTime() : 0;
+        const bTime = b.lastMessage?.createdAt ? new Date(b.lastMessage.createdAt).getTime() : 0;
+        return bTime - aTime;
       })
     : [];
 

@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "@/hooks/use-auth";
-import { useGetMyRequests, useGetServices, useCreateRequest } from "@workspace/api-client-react";
+import { useGetMyRequests, useGetServices, useCreateRequest, useGetChats, getGetChatsQueryKey } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { CountdownTimer } from "@/components/shared/CountdownTimer";
@@ -938,6 +938,8 @@ export default function Dashboard() {
   const [, navigate] = useLocation();
   const { data: requests, isLoading: requestsLoading, refetch } = useGetMyRequests();
   const { data: services, isLoading: servicesLoading } = useGetServices();
+  const { data: chats } = useGetChats({ query: { queryKey: getGetChatsQueryKey(), staleTime: 30_000 } });
+  const totalUnread = chats ? chats.reduce((s: number, c: any) => s + (c.unreadCount || 0), 0) : 0;
   const [selectedService, setSelectedService] = useState<any>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [payingRequest, setPayingRequest] = useState<any>(null);
@@ -1072,7 +1074,12 @@ export default function Dashboard() {
               <div className="text-base font-bold leading-tight">Connect with Friends</div>
               <div className="text-white/75 text-xs font-normal mt-0.5">Chat · Support · Community</div>
             </div>
-            <div className="shrink-0 flex items-center gap-1 text-white/80 text-sm font-semibold">
+            <div className="shrink-0 flex items-center gap-2 text-white/80 text-sm font-semibold">
+              {totalUnread > 0 && (
+                <span className="min-w-[1.5rem] h-6 px-1.5 bg-red-500 rounded-full text-xs font-bold text-white flex items-center justify-center shadow-lg animate-pulse">
+                  {totalUnread > 99 ? "99+" : totalUnread}
+                </span>
+              )}
               <span>Open Chat</span>
               <ChevronRight className="w-4 h-4" />
             </div>
