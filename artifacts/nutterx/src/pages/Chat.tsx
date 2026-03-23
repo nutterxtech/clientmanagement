@@ -101,7 +101,11 @@ export default function Chat() {
 
   const { data: messages, isLoading: messagesLoading, refetch: refetchMessages } =
     useGetChatMessages(activeChatId || "", undefined, {
-      query: { queryKey: getGetChatMessagesQueryKey(activeChatId || ""), enabled: !!activeChatId },
+      query: {
+        queryKey: getGetChatMessagesQueryKey(activeChatId || ""),
+        enabled: !!activeChatId,
+        staleTime: 30_000,
+      },
     });
 
   const sendMessageMutation = useSendMessage();
@@ -421,7 +425,7 @@ export default function Chat() {
               initial={{ x: "100%", opacity: 0 }}
               animate={{ x: 0, opacity: 1 }}
               exit={{ x: "100%", opacity: 0 }}
-              transition={{ duration: 0.28, ease: "easeInOut" }}
+              transition={{ duration: 0.15, ease: "easeOut" }}
               className="absolute inset-0 flex flex-col"
             >
               {/* Chat Header — WhatsApp dark green */}
@@ -478,7 +482,7 @@ export default function Chat() {
                   .dark { --wa-bg: #0D1B1E; }
                 `}</style>
 
-                {messagesLoading ? (
+                {messagesLoading && !(messages as unknown as any[])?.length ? (
                   <div className="flex justify-center mt-10">
                     <div className="w-8 h-8 border-[3px] rounded-full animate-spin" style={{ borderColor: "#25D366", borderTopColor: "transparent" }} />
                   </div>
