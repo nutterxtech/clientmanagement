@@ -158,14 +158,18 @@ router.get("/admin/groups", authenticate, requireAdmin, async (_req: AuthRequest
   }
 });
 
-// PATCH /api/chats/group/:chatId — admin: update avatar and/or add members
+// PATCH /api/chats/group/:chatId — admin: update name, avatar and/or add members
 router.patch("/group/:chatId", authenticate, requireAdmin, async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { chatId } = req.params;
-    const { avatar, addUserIds } = req.body as { avatar?: string; addUserIds?: string[] };
+    const { name, avatar, addUserIds } = req.body as { name?: string; avatar?: string; addUserIds?: string[] };
 
     const chat = await Chat.findOne({ _id: chatId, type: "group" });
     if (!chat) { res.status(404).json({ message: "Group not found" }); return; }
+
+    if (typeof name === "string" && name.trim()) {
+      chat.name = name.trim();
+    }
 
     if (typeof avatar === "string") {
       chat.avatar = avatar.trim() || undefined;

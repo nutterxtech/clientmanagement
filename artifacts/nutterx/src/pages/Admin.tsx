@@ -1493,11 +1493,12 @@ function CreateGroupModal({ users, onClose, token }: { users: any[]; onClose: ()
 function ManageGroupModal({ group, users, token, onClose, onUpdated }: {
   group: any; users: any[]; token: string; onClose: () => void; onUpdated: (g: any) => void;
 }) {
-  const [avatarUrl, setAvatarUrl] = useState(group.avatar || "");
+  const [groupName, setGroupName]     = useState(group.name || "");
+  const [avatarUrl, setAvatarUrl]     = useState(group.avatar || "");
   const [selectedAddIds, setSelectedAddIds] = useState<string[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
+  const [loading, setLoading]         = useState(false);
+  const [error, setError]             = useState("");
+  const [success, setSuccess]         = useState("");
 
   const existingIds = new Set((group.participants || []).map((p: any) => p._id || p));
   const availableUsers = users.filter((u: any) => !existingIds.has(u._id) && u.role !== "admin");
@@ -1511,7 +1512,7 @@ function ManageGroupModal({ group, users, token, onClose, onUpdated }: {
       const res = await fetch(`/api/chats/group/${group._id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ avatar: avatarUrl, addUserIds: selectedAddIds }),
+        body: JSON.stringify({ name: groupName.trim(), avatar: avatarUrl, addUserIds: selectedAddIds }),
       });
       if (!res.ok) { const d = await res.json(); throw new Error(d.message || "Failed"); }
       const updated = await res.json();
@@ -1534,19 +1535,33 @@ function ManageGroupModal({ group, users, token, onClose, onUpdated }: {
           </button>
         </div>
 
-        {/* Group identity */}
+        {/* Group identity preview */}
         <div className="flex items-center gap-4 mb-5 p-3 bg-secondary/30 rounded-2xl border border-border">
-          {group.avatar ? (
-            <img src={group.avatar} alt={group.name} className="w-14 h-14 rounded-2xl object-cover border border-border shrink-0" />
+          {avatarUrl ? (
+            <img src={avatarUrl} alt={groupName || group.name} className="w-14 h-14 rounded-2xl object-cover border border-border shrink-0"
+              onError={e => { (e.target as HTMLImageElement).style.display = "none"; }} />
           ) : (
             <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-indigo-500/30 to-purple-600/30 border border-indigo-500/20 flex items-center justify-center font-bold text-2xl text-indigo-300 shrink-0">
-              {group.name?.charAt(0).toUpperCase()}
+              {(groupName || group.name)?.charAt(0).toUpperCase()}
             </div>
           )}
           <div>
-            <div className="font-bold">{group.name}</div>
+            <div className="font-bold">{groupName || group.name}</div>
             <div className="text-xs text-muted-foreground">{(group.participants || []).length} members</div>
           </div>
+        </div>
+
+        {/* Group name */}
+        <div className="mb-5">
+          <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5 mb-2">
+            <MessagesSquare className="w-3.5 h-3.5" /> Group Name
+          </label>
+          <Input
+            value={groupName}
+            onChange={e => setGroupName(e.target.value)}
+            placeholder="Enter group name…"
+            className="h-10 text-sm font-medium"
+          />
         </div>
 
         {/* Photo URL */}
