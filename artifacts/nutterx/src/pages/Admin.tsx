@@ -1057,7 +1057,12 @@ function SettingsForm() {
 }
 
 // ── Golden Certificate PNG Export ─────────────────────────────
-async function exportAsPNG(requests: any[]) {
+async function exportAsPNG(rawRequests: any[]) {
+  const requests = [...rawRequests].sort((a, b) => {
+    const nameA = (a.user?.name || "").toLowerCase();
+    const nameB = (b.user?.name || "").toLowerCase();
+    return nameA < nameB ? -1 : nameA > nameB ? 1 : 0;
+  });
   const S = 2;
   const LW = 390;
   const W = LW * S;
