@@ -192,13 +192,16 @@ router.get("/ipn", async (req, res): Promise<void> => {
       if (ext && ext.paymentStatus !== "paid") {
         const update: any = { paymentStatus: "paid" };
 
-        // Admin-initiated request: auto-confirm + auto-start timer
+        // Admin-initiated request: auto-confirm + auto-start timer + mark completed
         if (ext.initiatedBy === "admin" && ext.adminRequestedDays) {
           const deadline = new Date();
           deadline.setDate(deadline.getDate() + ext.adminRequestedDays);
           update.adminConfirmed = true;
           update.newDeadline    = deadline;
-          await ServiceRequest.findByIdAndUpdate(ext.serviceRequest, { subscriptionEndsAt: deadline });
+          await ServiceRequest.findByIdAndUpdate(ext.serviceRequest, {
+            subscriptionEndsAt: deadline,
+            status: "completed",
+          });
         }
 
         await DeadlinePayment.findByIdAndUpdate(ext._id, update);
@@ -235,10 +238,11 @@ router.patch("/admin/:id", authenticate, requireAdmin, async (req: AuthRequest, 
     if (newDeadline)                 update.newDeadline    = new Date(newDeadline);
     if (markPaid)                    update.paymentStatus  = "paid";
 
-    // If admin confirms and sets a new deadline, update the service request deadline too
+    // If admin confirms and sets a new deadline, update the service request deadline + mark completed
     if (adminConfirmed && newDeadline) {
       await ServiceRequest.findByIdAndUpdate(ext.serviceRequest, {
         subscriptionEndsAt: new Date(newDeadline),
+        status: "completed",
       });
     }
 

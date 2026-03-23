@@ -626,6 +626,7 @@ function PaymentsPanel() {
   const [confirmingExt, setConfirmingExt] = useState<any>(null);
   const [markingPaidId, setMarkingPaidId] = useState<string | null>(null);
   const [deletingExtId, setDeletingExtId] = useState<string | null>(null);
+  const queryClient = useQueryClient();
 
   const loadAll = () => {
     const token = localStorage.getItem("nutterx_token");
@@ -871,7 +872,10 @@ function PaymentsPanel() {
             <ExtensionConfirmModal
               ext={confirmingExt}
               onClose={() => setConfirmingExt(null)}
-              onConfirmed={loadAll}
+              onConfirmed={() => {
+                loadAll();
+                queryClient.invalidateQueries({ queryKey: getAdminGetRequestsQueryKey() });
+              }}
             />
           )}
         </AnimatePresence>
