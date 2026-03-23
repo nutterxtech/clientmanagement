@@ -62,7 +62,7 @@ const WA_ICON = (
 function WhatsAppFAB() {
   const { isAuthenticated } = useAuth();
   const [location] = useLocation();
-  const hidden = !isAuthenticated || location === "/admin" || location === "/auth" || location === "/";
+  const hidden = !isAuthenticated || location === "/admin" || location === "/auth" || location === "/" || location === "/chat";
   if (hidden) return null;
   return (
     <motion.a

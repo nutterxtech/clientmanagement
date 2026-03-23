@@ -144,44 +144,65 @@ export function Navbar() {
             <motion.div
               initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
               onClick={() => setMobileOpen(false)}
-              className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm md:hidden"
+              className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm md:hidden"
             />
             <motion.div
-              initial={{ y: -8, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: -8, opacity: 0 }}
-              transition={{ duration: 0.2 }}
-              className="fixed top-16 left-0 right-0 z-40 md:hidden border-b border-border bg-background/95 backdrop-blur-xl shadow-2xl"
+              initial={{ y: -12, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: -12, opacity: 0 }}
+              transition={{ duration: 0.22, ease: "easeOut" }}
+              className="fixed top-16 left-0 right-0 z-40 md:hidden border-b border-border shadow-2xl overflow-hidden"
+              style={{ background: "var(--mob-menu-bg, #fff)" }}
             >
-              <div className="px-4 py-3 space-y-1">
-                {NAV_LINKS.map(link => (
-                  <Link key={link.href} href={link.href} onClick={() => setMobileOpen(false)}>
-                    <button onClick={(link as any).onClick} className={cn(
-                      "w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all text-left relative",
-                      location === link.href
-                        ? "bg-primary/10 text-primary"
-                        : "text-muted-foreground hover:text-foreground hover:bg-secondary/60"
-                    )}>
-                      <link.icon className="w-4 h-4" />
-                      {link.label}
-                      {(link as any).badge > 0 && (
-                        <span className="ml-auto px-2 py-0.5 bg-red-500 rounded-full text-[10px] font-bold text-white">
-                          {(link as any).badge > 9 ? "9+" : (link as any).badge}
-                        </span>
-                      )}
-                    </button>
-                  </Link>
-                ))}
-                <div className="pt-2 pb-1 border-t border-border mt-2">
-                  <div className="px-4 py-2 text-xs text-muted-foreground">
-                    Signed in as <span className="font-semibold text-foreground">{user?.name}</span>
-                  </div>
-                  <button
-                    onClick={() => { logout(); setMobileOpen(false); }}
-                    className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-red-400 hover:bg-red-400/5 transition-all"
-                  >
-                    <LogOut className="w-4 h-4" />
-                    Sign out
-                  </button>
+              <style>{`
+                :root { --mob-menu-bg: #ffffff; }
+                .dark { --mob-menu-bg: #111827; }
+              `}</style>
+
+              {/* User identity banner */}
+              <div className="px-5 py-3 flex items-center gap-3 border-b border-border/60"
+                style={{ background: "#075E54" }}>
+                <div className="w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-base shrink-0"
+                  style={{ background: "#25D366" }}>
+                  {user?.name?.charAt(0).toUpperCase()}
                 </div>
+                <div className="min-w-0">
+                  <div className="text-sm font-bold text-white truncate">{user?.name}</div>
+                  <div className="text-[11px] text-white/70 truncate">{(user as any)?.email}</div>
+                </div>
+              </div>
+
+              <div className="px-3 py-2 space-y-0.5">
+                {NAV_LINKS.map(link => {
+                  const active = location === link.href;
+                  return (
+                    <Link key={link.href} href={link.href} onClick={() => setMobileOpen(false)}>
+                      <button onClick={(link as any).onClick} className={cn(
+                        "w-full flex items-center gap-4 px-4 py-4 rounded-2xl text-base font-semibold transition-all text-left relative",
+                        active
+                          ? "text-white"
+                          : "text-foreground hover:bg-[#25D366]/8"
+                      )}
+                      style={active ? { background: "linear-gradient(90deg,#075E54,#25D366)" } : {}}>
+                        <link.icon className={cn("w-5 h-5 shrink-0", active ? "text-white" : "text-[#25D366]")} />
+                        <span>{link.label}</span>
+                        {(link as any).badge > 0 && (
+                          <span className="ml-auto min-w-[1.5rem] h-6 px-1.5 bg-red-500 rounded-full text-xs font-bold text-white flex items-center justify-center">
+                            {(link as any).badge > 9 ? "9+" : (link as any).badge}
+                          </span>
+                        )}
+                      </button>
+                    </Link>
+                  );
+                })}
+              </div>
+
+              <div className="px-3 pb-3 border-t border-border/60 mt-1 pt-2">
+                <button
+                  onClick={() => { logout(); setMobileOpen(false); }}
+                  className="w-full flex items-center gap-4 px-4 py-4 rounded-2xl text-base font-semibold text-red-500 hover:bg-red-50 dark:hover:bg-red-500/8 transition-all"
+                >
+                  <LogOut className="w-5 h-5 shrink-0" />
+                  Sign out
+                </button>
               </div>
             </motion.div>
           </>
