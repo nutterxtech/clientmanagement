@@ -1688,17 +1688,26 @@ export default function Admin() {
       const res = await fetch("/api/chats/admin/groups", {
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (res.ok) setGroups(await res.json());
-    } catch { /* ignore */ }
-    finally { setGroupsLoading(false); }
+      if (res.ok) {
+        const data = await res.json();
+        setGroups(Array.isArray(data) ? data : []);
+      } else {
+        console.warn("fetchGroups failed:", res.status, await res.text());
+      }
+    } catch (err) {
+      console.error("fetchGroups error:", err);
+    } finally {
+      setGroupsLoading(false);
+    }
   };
 
   useEffect(() => {
     if (isAdmin) fetchGroups();
   }, [isAdmin]);
 
+  // Re-fetch whenever the groups tab becomes active
   useEffect(() => {
-    if (activeTab === "groups" && isAdmin) fetchGroups();
+    if (activeTab === "groups") fetchGroups();
   }, [activeTab]);
 
   const { data: requests, isLoading: reqLoading } = useAdminGetRequests({ query: { queryKey: getAdminGetRequestsQueryKey(), enabled: isAdmin } });
@@ -1770,7 +1779,7 @@ export default function Admin() {
           {TABS.map(tab => (
             <button
               key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
+              onClick={() => { setActiveTab(tab.id); if (tab.id === "groups") fetchGroups(); }}
               className={`relative flex items-center gap-2 px-3.5 py-2 rounded-xl text-sm font-medium transition-all whitespace-nowrap shrink-0 ${
                 activeTab === tab.id ? "bg-primary text-primary-foreground shadow-md" : "text-muted-foreground hover:text-foreground hover:bg-secondary"
               }`}
@@ -1895,12 +1904,21 @@ export default function Admin() {
                     <h2 className="text-lg font-bold">Group Chats</h2>
                     <span className="text-sm text-muted-foreground">{groups.length} group{groups.length !== 1 ? "s" : ""}</span>
                   </div>
-                  <button
-                    onClick={() => setShowGroupModal(true)}
-                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-500/10 border border-indigo-500/25 text-indigo-400 text-sm font-semibold hover:bg-indigo-500/20 transition-colors"
-                  >
-                    <Plus className="w-4 h-4" /> New Group
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={fetchGroups}
+                      disabled={groupsLoading}
+                      className="flex items-center gap-2 px-4 py-2 rounded-xl bg-secondary border border-border text-sm font-semibold hover:bg-secondary/80 transition-colors disabled:opacity-50"
+                    >
+                      <RefreshCw className={`w-4 h-4 ${groupsLoading ? "animate-spin" : ""}`} /> Refresh
+                    </button>
+                    <button
+                      onClick={() => setShowGroupModal(true)}
+                      className="flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-500/10 border border-indigo-500/25 text-indigo-400 text-sm font-semibold hover:bg-indigo-500/20 transition-colors"
+                    >
+                      <Plus className="w-4 h-4" /> New Group
+                    </button>
+                  </div>
                 </div>
 
                 {showGroupModal && (

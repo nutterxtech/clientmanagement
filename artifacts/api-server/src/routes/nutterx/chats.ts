@@ -26,9 +26,12 @@ async function buildChatResponse(db: ReturnType<typeof getDb>, chatRows: any[], 
       if (lm) lastMessage = { ...lm, _id: lm.id, sender: { ...lm.sender, _id: lm.sender.id } };
     }
 
-    const [unreadRow] = await db.select({ cnt: count() }).from(messages)
-      .where(and(eq(messages.chatId, chat.id), ne(messages.senderId, currentUserId), eq(messages.read, false)));
-    const unreadCount = Number(unreadRow?.cnt ?? 0);
+    let unreadCount = 0;
+    if (currentUserId) {
+      const [unreadRow] = await db.select({ cnt: count() }).from(messages)
+        .where(and(eq(messages.chatId, chat.id), ne(messages.senderId, currentUserId), eq(messages.read, false)));
+      unreadCount = Number(unreadRow?.cnt ?? 0);
+    }
 
     return {
       ...chat,

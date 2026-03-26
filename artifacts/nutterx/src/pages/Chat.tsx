@@ -164,8 +164,9 @@ export default function Chat() {
     if (existing) { openChat(existing._id!); return; }
     try {
       const chat = await startChatMutation.mutateAsync({ userId });
-      await refetchChats();
+      // Open immediately — don't wait for the chat list to refresh
       openChat((chat as any)._id);
+      refetchChats(); // refresh in background
     } catch {}
   };
 
@@ -183,8 +184,8 @@ export default function Chat() {
       });
       if (!res.ok) throw new Error();
       const chat = await res.json();
-      await refetchChats();
-      openChat(chat._id);
+      openChat(chat._id); // open immediately
+      refetchChats(); // refresh in background
     } catch {
       alert("Could not reach support. Please try again.");
     } finally {
