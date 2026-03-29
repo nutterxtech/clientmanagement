@@ -141,5 +141,15 @@ export async function runMigrations(): Promise<void> {
   `);
   await db.execute(sql`ALTER TABLE view_once_images ADD COLUMN IF NOT EXISTS caption TEXT`);
 
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS view_once_views (
+      id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      image_id   UUID NOT NULL REFERENCES view_once_images(id) ON DELETE CASCADE,
+      viewer_id  UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      viewed_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (image_id, viewer_id)
+    )
+  `);
+
   logger.info("Database migrations completed");
 }

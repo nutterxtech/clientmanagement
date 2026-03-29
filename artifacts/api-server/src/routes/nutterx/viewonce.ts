@@ -6,18 +6,14 @@ import { logger } from "../../lib/logger";
 
 const router = Router();
 
-// With postgres.js driver, db.execute() returns a RowList (array-like), not {rows:[]}
-// So we cast to any[] directly.
 function rows(result: any): any[] {
-  // postgres.js RowList is iterable/array-like
   if (Array.isArray(result)) return result;
   if (result && Array.isArray(result.rows)) return result.rows;
   return [];
 }
 
 /* ── POST /api/view-once
-   Body: { chatId, imageData (base64), mimeType, caption? }
-   Creates a message of type 'view_once_image' and stores the image. */
+   Body: { chatId, imageData (base64), mimeType, caption? } */
 router.post("/", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { chatId, imageData, mimeType, caption } = req.body;
@@ -29,7 +25,6 @@ router.post("/", authenticate, async (req: AuthRequest, res: Response): Promise<
       return;
     }
 
-    // Verify participant
     const part = await db.execute(sql`
       SELECT 1 FROM chat_participants WHERE chat_id = ${chatId} AND user_id = ${userId}
     `);
@@ -38,7 +33,6 @@ router.post("/", authenticate, async (req: AuthRequest, res: Response): Promise<
       return;
     }
 
-    // Create message
     const msgResult = await db.execute(sql`
       INSERT INTO messages (chat_id, sender_id, content, type)
       VALUES (${chatId}, ${userId}, 'pending', 'view_once_image')
@@ -46,7 +40,6 @@ router.post("/", authenticate, async (req: AuthRequest, res: Response): Promise<
     `);
     const messageId = rows(msgResult)[0]!.id as string;
 
-    // Store image + optional caption
     const imgResult = await db.execute(sql`
       INSERT INTO view_once_images (message_id, sender_id, chat_id, image_data, mime_type, caption)
       VALUES (
@@ -58,21 +51,11 @@ router.post("/", authenticate, async (req: AuthRequest, res: Response): Promise<
     `);
     const imageId = rows(imgResult)[0]!.id as string;
 
-    // Point message.content to the imageId
-    await db.execute(sql`
-      UPDATE messages SET content = ${imageId} WHERE id = ${messageId}
-    `);
+    await db.execute(sql`UPDATE messages SET content = ${imageId} WHERE id = ${messageId}`);
+    await db.execute(sql`UPDATE chats SET last_message_id = ${messageId}, updated_at = now() WHERE id = ${chatId}`);
 
-    // Update chat last_message_id
-    await db.execute(sql`
-      UPDATE chats SET last_message_id = ${messageId}, updated_at = now() WHERE id = ${chatId}
-    `);
-
-    // Notify via Socket.io
     const io = (req.app as any).io;
-    if (io) {
-      io.to(chatId).emit("new_message", { chatId, messageId });
-    }
+    if (io) io.to(chatId).emit("new_message", { chatId, messageId });
 
     res.status(201).json({ messageId, imageId });
   } catch (err: any) {
@@ -82,7 +65,10 @@ router.post("/", authenticate, async (req: AuthRequest, res: Response): Promise<
 });
 
 /* ── GET /api/view-once/:imageId
-   Returns image data (+caption). Non-sender first view consumes the image. */
+   Returns image data. Tracks per-user views.
+   - Sender: always sees the photo (preview only, not counted as a view)
+   - Each non-sender can view exactly once; subsequent attempts → 410
+   - Image data nulled out only after all non-sender participants have viewed */
 router.get("/:imageId", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { imageId } = req.params;
@@ -91,53 +77,73 @@ router.get("/:imageId", authenticate, async (req: AuthRequest, res: Response): P
 
     const result = await db.execute(sql`
       SELECT vi.id, vi.image_data, vi.mime_type, vi.caption, vi.viewed, vi.sender_id, vi.chat_id
-      FROM view_once_images vi
-      WHERE vi.id = ${imageId}
+      FROM view_once_images vi WHERE vi.id = ${imageId}
     `);
+    const img = rows(result)[0] as any;
+    if (!img) { res.status(404).json({ error: "Image not found" }); return; }
 
-    const resultRows = rows(result);
-    if (!resultRows.length) {
-      res.status(404).json({ error: "Image not found" });
-      return;
-    }
-
-    const img = resultRows[0] as any;
     const isSender = img.sender_id === userId;
 
-    if (img.viewed && !isSender) {
-      res.status(410).json({ error: "Image already viewed and deleted" });
+    if (isSender) {
+      res.json({
+        imageData: img.image_data,
+        mimeType: img.mime_type,
+        caption: img.caption || null,
+        viewed: img.viewed,
+        isSender: true,
+      });
       return;
     }
 
+    // Check if this specific user has already viewed it
+    const viewCheck = await db.execute(sql`
+      SELECT 1 FROM view_once_views WHERE image_id = ${imageId} AND viewer_id = ${userId}
+    `);
+    if (rows(viewCheck).length) {
+      res.status(410).json({ error: "You have already viewed this photo" });
+      return;
+    }
+
+    // Image data already wiped (all participants have viewed)
     if (!img.image_data) {
-      if (isSender) {
-        res.json({ imageData: null, mimeType: img.mime_type, caption: img.caption, viewed: true, isSender: true });
-      } else {
-        res.status(410).json({ error: "Image already viewed and deleted" });
-      }
+      res.status(410).json({ error: "Photo is no longer available" });
       return;
     }
 
-    // Recipient views for the first time — consume it
-    if (!isSender && !img.viewed) {
+    // Record this view
+    await db.execute(sql`
+      INSERT INTO view_once_views (image_id, viewer_id)
+      VALUES (${imageId}, ${userId})
+      ON CONFLICT (image_id, viewer_id) DO NOTHING
+    `);
+
+    // Check if all non-sender participants have now viewed
+    const partResult = await db.execute(sql`
+      SELECT COUNT(*) AS cnt FROM chat_participants
+      WHERE chat_id = ${img.chat_id} AND user_id != ${img.sender_id}
+    `);
+    const viewsResult = await db.execute(sql`
+      SELECT COUNT(*) AS cnt FROM view_once_views WHERE image_id = ${imageId}
+    `);
+    const totalParticipants = parseInt(rows(partResult)[0]?.cnt ?? "0", 10);
+    const totalViews       = parseInt(rows(viewsResult)[0]?.cnt ?? "0", 10);
+
+    if (totalViews >= totalParticipants) {
       await db.execute(sql`
-        UPDATE view_once_images
-        SET viewed = true, viewed_at = now(), image_data = null
+        UPDATE view_once_images SET viewed = true, viewed_at = now(), image_data = null
         WHERE id = ${imageId}
       `);
-
-      const io = (req.app as any).io;
-      if (io) {
-        io.to(img.chat_id).emit("view_once_viewed", { imageId, chatId: img.chat_id });
-      }
     }
+
+    const io = (req.app as any).io;
+    if (io) io.to(img.chat_id).emit("view_once_viewed", { imageId, chatId: img.chat_id, viewerId: userId });
 
     res.json({
       imageData: img.image_data,
       mimeType: img.mime_type,
       caption: img.caption || null,
-      viewed: img.viewed,
-      isSender,
+      viewed: false,
+      isSender: false,
     });
   } catch (err: any) {
     logger.error({ err }, "view-once GET failed");

@@ -475,12 +475,15 @@ export default function Chat() {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.status === 410 || res.status === 404) {
+        // Already viewed or gone — refresh messages so bubble updates to "Opened"
+        refetchMessages();
         setViewOnceFs({ imageData: null, mimeType: "image/jpeg", caption: null, isSender: isSenderCheck });
         return;
       }
       if (!res.ok) throw new Error();
       const data = await res.json();
       setViewOnceFs({ imageData: data.imageData, mimeType: data.mimeType || "image/jpeg", caption: data.caption || null, isSender: data.isSender });
+      // Refresh after viewing so bubble updates to "Opened" for this user
       if (!data.isSender) refetchMessages();
     } catch {
       alert("Could not load photo.");
@@ -1058,25 +1061,45 @@ export default function Chat() {
                               )}
                               {msg.type === "view_once_image" ? (
                                 <div className="flex flex-col gap-1">
-                                  <button
-                                    onClick={() => handleViewOnce(msg.content, isOwn)}
-                                    className="flex items-center gap-2.5 py-0.5 select-none"
-                                  >
-                                    <div
-                                      className="w-9 h-9 rounded-full flex items-center justify-center shrink-0"
-                                      style={{ background: isOwn ? "rgba(0,0,0,0.12)" : "rgba(7,94,84,0.12)" }}
+                                  {msg.viewOnceViewed && !isOwn ? (
+                                    /* Already viewed by this user */
+                                    <div className="flex items-center gap-2.5 py-0.5 opacity-60 select-none">
+                                      <div
+                                        className="w-9 h-9 rounded-full flex items-center justify-center shrink-0"
+                                        style={{ background: "rgba(0,0,0,0.08)" }}
+                                      >
+                                        <EyeOff className="w-4 h-4" style={{ color: "#667781" }} />
+                                      </div>
+                                      <div className="text-left">
+                                        <div className="text-xs font-semibold" style={{ color: "#667781" }}>
+                                          Photo · Opened
+                                        </div>
+                                        <div className="text-[10px]" style={{ color: "#aaa" }}>
+                                          You've already viewed this
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <button
+                                      onClick={() => handleViewOnce(msg.content, isOwn)}
+                                      className="flex items-center gap-2.5 py-0.5 select-none"
                                     >
-                                      <Eye className="w-4 h-4" style={{ color: "#075E54" }} />
-                                    </div>
-                                    <div className="text-left">
-                                      <div className="text-xs font-semibold" style={{ color: "#075E54" }}>
-                                        {isOwn ? "Photo · View once" : "Photo · Tap to view"}
+                                      <div
+                                        className="w-9 h-9 rounded-full flex items-center justify-center shrink-0"
+                                        style={{ background: isOwn ? "rgba(0,0,0,0.12)" : "rgba(7,94,84,0.12)" }}
+                                      >
+                                        <Eye className="w-4 h-4" style={{ color: "#075E54" }} />
                                       </div>
-                                      <div className="text-[10px]" style={{ color: "#667781" }}>
-                                        {isOwn ? "Sent" : "Once viewed, it's gone"}
+                                      <div className="text-left">
+                                        <div className="text-xs font-semibold" style={{ color: "#075E54" }}>
+                                          {isOwn ? "Photo · View once" : "Photo · Tap to view"}
+                                        </div>
+                                        <div className="text-[10px]" style={{ color: "#667781" }}>
+                                          {isOwn ? "Sent" : "Once viewed, it's gone"}
+                                        </div>
                                       </div>
-                                    </div>
-                                  </button>
+                                    </button>
+                                  )}
                                   {msg.viewOnceCaption && (
                                     <p className="text-xs leading-snug mt-0.5" style={{ color: "#111" }}>
                                       {msg.viewOnceCaption}

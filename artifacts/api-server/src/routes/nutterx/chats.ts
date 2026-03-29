@@ -138,6 +138,7 @@ router.get("/:chatId/messages", authenticate, async (req: AuthRequest, res: Resp
       id: messages.id, content: messages.content, read: messages.read,
       createdAt: messages.createdAt, chatId: messages.chatId, replyToId: messages.replyToId,
       type: messages.type,
+      senderId: messages.senderId,
       sender: { id: users.id, name: users.name, email: users.email, avatar: users.avatar },
     }).from(messages)
       .innerJoin(users, eq(messages.senderId, users.id))
@@ -161,11 +162,12 @@ router.get("/:chatId/messages", authenticate, async (req: AuthRequest, res: Resp
       }
     }
 
-    // Fetch view-once captions in one batch (postgres.js returns RowList, which is array-like)
+    // Fetch view-once captions + per-user viewed status
     const viewOnceIds = paged
       .filter(m => (m as any).type === "view_once_image" && m.content)
       .map(m => m.content);
     const captionMap: Record<string, string | null> = {};
+    const viewedByMe = new Set<string>();
     if (viewOnceIds.length) {
       try {
         const capRows = await db.execute(sql`
@@ -174,7 +176,14 @@ router.get("/:chatId/messages", authenticate, async (req: AuthRequest, res: Resp
         for (const r of (Array.isArray(capRows) ? capRows : (capRows as any).rows ?? []) as any[]) {
           captionMap[r.id] = r.caption ?? null;
         }
-      } catch { /* view_once_images might not exist yet */ }
+        const viewedRows = await db.execute(sql`
+          SELECT image_id FROM view_once_views
+          WHERE image_id = ANY(${viewOnceIds}::uuid[]) AND viewer_id = ${userId}
+        `);
+        for (const r of (Array.isArray(viewedRows) ? viewedRows : (viewedRows as any).rows ?? []) as any[]) {
+          viewedByMe.add(r.image_id);
+        }
+      } catch { /* tables might not exist yet */ }
     }
 
     // Mark as read
@@ -187,6 +196,9 @@ router.get("/:chatId/messages", authenticate, async (req: AuthRequest, res: Resp
       sender: { ...m.sender, _id: m.sender.id },
       replyTo: m.replyToId ? (replyMap[m.replyToId] ?? null) : null,
       viewOnceCaption: (m as any).type === "view_once_image" ? (captionMap[m.content] ?? null) : undefined,
+      viewOnceViewed:  (m as any).type === "view_once_image"
+        ? ((m as any).senderId === userId ? false : viewedByMe.has(m.content))
+        : undefined,
     })));
   } catch {
     res.status(500).json({ message: "Failed to fetch messages" });
