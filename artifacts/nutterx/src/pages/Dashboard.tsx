@@ -750,14 +750,13 @@ function AdminPayRequestModal({ request, onClose, onPaid }: { request: any; onCl
   );
 }
 
-// ── Extend Service Modal (manual M-Pesa) ─────────────────────
+// ── Extend Service Modal (manual M-Pesa, no amount entry) ────
 type ExtStep = "form" | "creating" | "instructions" | "submit" | "submitting" | "pending" | "success";
 
-function ExtendModal({ liveRequests, onClose }: { liveRequests: any[]; onClose: () => void }) {
+function ExtendModal({ liveRequests, onClose, startAtPaste }: { liveRequests: any[]; onClose: () => void; startAtPaste?: boolean }) {
   const [step, setStep]             = useState<ExtStep>("form");
   const [selectedId, setSelectedId] = useState(liveRequests[0]?._id || "");
   const [purpose, setPurpose]       = useState("");
-  const [amount, setAmount]         = useState("");
   const [error, setError]           = useState("");
   const [extensionId, setExtId]     = useState("");
   const [mpesaMsg, setMpesaMsg]     = useState("");
@@ -766,28 +765,25 @@ function ExtendModal({ liveRequests, onClose }: { liveRequests: any[]; onClose: 
 
   const selectedReq = liveRequests.find(r => r._id === selectedId);
 
-  const handleCreate = async () => {
-    if (!selectedId || !purpose.trim() || !amount) { setError("Please fill in all fields."); return; }
-    const amt = Number(amount);
-    if (isNaN(amt) || amt < 1) { setError("Enter a valid amount (min KES 1)."); return; }
+  const handleCreate = async (goToPaste = false) => {
+    if (!selectedId || !purpose.trim()) { setError("Please select a service and describe your reason."); return; }
     setError(""); setStep("creating");
     try {
       const token = localStorage.getItem("nutterx_token");
       const res   = await fetch("/api/extensions/initiate", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ serviceRequestId: selectedId, purpose: purpose.trim(), amount: amt }),
+        body: JSON.stringify({ serviceRequestId: selectedId, purpose: purpose.trim() }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || "Request failed");
       setExtId(data.extensionId);
-      setStep("instructions");
+      setStep(goToPaste ? "submit" : "instructions");
     } catch (err: any) {
       setError(err.message); setStep("form");
     }
   };
 
-  // Poll when pending
   useEffect(() => {
     if (step !== "pending" || !extensionId) return;
     const interval = setInterval(async () => {
@@ -797,7 +793,7 @@ function ExtendModal({ liveRequests, onClose }: { liveRequests: any[]; onClose: 
         const data  = await res.json();
         if (data.paymentStatus === "paid") {
           clearInterval(interval); setStep("success");
-          toast({ title: "Payment approved!", description: "Admin will update your deadline shortly." });
+          toast({ title: "Payment approved!", description: "Your deadline will be updated shortly." });
         }
       } catch { /* keep polling */ }
     }, 8000);
@@ -858,10 +854,20 @@ function ExtendModal({ liveRequests, onClose }: { liveRequests: any[]; onClose: 
           </div>
 
           <AnimatePresence mode="wait">
+            {/* ── Step 1: Form ── */}
             {step === "form" && (
               <motion.div key="form" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-4">
+                {/* How it works callout */}
+                <div className="rounded-xl bg-indigo-500/8 border border-indigo-500/20 p-3.5 text-xs text-indigo-200/80 leading-relaxed space-y-1.5">
+                  <div className="font-semibold text-indigo-300 flex items-center gap-1.5"><ArrowUpRight className="w-3.5 h-3.5" />How it works</div>
+                  <div>1. Tell us which service and what the payment is for.</div>
+                  <div>2. We show you the M-Pesa number to send money to.</div>
+                  <div>3. Paste the SMS confirmation you receive.</div>
+                  <div>4. Admin reviews and updates your deadline — done!</div>
+                </div>
+                {/* Service picker */}
                 <div>
-                  <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground block mb-2">Live Service</label>
+                  <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground block mb-2">Which service? *</label>
                   <div className="space-y-2">
                     {liveRequests.map(r => (
                       <button key={r._id} type="button" onClick={() => setSelectedId(r._id)}
@@ -882,39 +888,32 @@ function ExtendModal({ liveRequests, onClose }: { liveRequests: any[]; onClose: 
                     ))}
                   </div>
                 </div>
+                {/* Reason */}
                 <div>
-                  <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground block mb-2">Purpose *</label>
+                  <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground block mb-2">Reason for payment *</label>
                   <textarea value={purpose} onChange={e => setPurpose(e.target.value)}
-                    placeholder="e.g. Extend deadline by 30 days, continue service for next month..."
+                    placeholder="e.g. Extend deadline by 30 days, renew for next month, extra features…"
                     className="w-full rounded-xl bg-secondary/50 border border-border p-3 text-sm min-h-[72px] focus:outline-none focus:border-primary/50 resize-none transition-colors" />
-                </div>
-                <div>
-                  <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground block mb-2">Amount (KES) *</label>
-                  <div className="relative">
-                    <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground font-semibold text-sm">KES</span>
-                    <input type="number" min="1" value={amount} onChange={e => setAmount(e.target.value)}
-                      placeholder="0"
-                      className="w-full h-11 rounded-xl bg-secondary/50 border border-border pl-14 pr-4 text-sm font-bold focus:outline-none focus:border-primary/50 transition-colors" />
-                  </div>
                 </div>
                 {error && (
                   <div className="flex items-center gap-2 text-destructive text-xs bg-destructive/10 border border-destructive/20 rounded-xl px-3 py-2.5">
                     <AlertCircle className="w-4 h-4 shrink-0" />{error}
                   </div>
                 )}
-                <div className="p-3 bg-indigo-500/5 border border-indigo-500/20 rounded-xl text-xs text-indigo-300/80 leading-relaxed flex gap-2">
-                  <ArrowUpRight className="w-4 h-4 shrink-0 mt-0.5 text-indigo-400" />
-                  <span>You'll pay via M-Pesa and paste the confirmation SMS. Admin will review and update your deadline.</span>
-                </div>
-                <div className="flex gap-2.5">
-                  <Button variant="outline" className="flex-1 h-11" onClick={onClose}>Cancel</Button>
-                  <Button variant="gradient" className="flex-1 h-11 gap-2" onClick={handleCreate}>
-                    <ClipboardCheck className="w-4 h-4" /> Continue
+                {/* Two action buttons */}
+                <div className="space-y-2.5 pt-1">
+                  <Button variant="gradient" className="w-full h-11 gap-2" onClick={() => handleCreate(false)}>
+                    <Smartphone className="w-4 h-4" /> Make Payment
                   </Button>
+                  <Button variant="outline" className="w-full h-11 gap-2 border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/8 hover:border-emerald-500/60" onClick={() => handleCreate(true)}>
+                    <ClipboardCheck className="w-4 h-4" /> Already Paid? Paste SMS
+                  </Button>
+                  <Button variant="ghost" className="w-full h-9 text-muted-foreground text-xs" onClick={onClose}>Cancel</Button>
                 </div>
               </motion.div>
             )}
 
+            {/* ── Step 2: Creating ── */}
             {step === "creating" && (
               <motion.div key="creating" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="text-center py-8">
                 <Loader2 className="w-10 h-10 text-primary animate-spin mx-auto mb-3" />
@@ -922,6 +921,7 @@ function ExtendModal({ liveRequests, onClose }: { liveRequests: any[]; onClose: 
               </motion.div>
             )}
 
+            {/* ── Step 3a: M-Pesa instructions ── */}
             {step === "instructions" && (
               <motion.div key="instructions" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-4">
                 <div className="text-center">
@@ -929,30 +929,29 @@ function ExtendModal({ liveRequests, onClose }: { liveRequests: any[]; onClose: 
                     <Smartphone className="w-6 h-6 text-[#25D366]" />
                   </div>
                   <h4 className="font-bold">Send M-Pesa Payment</h4>
-                  <p className="text-xs text-muted-foreground mt-0.5">{selectedReq?.serviceName} — KES {Number(amount).toLocaleString()}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{selectedReq?.serviceName}</p>
                 </div>
                 <div className="rounded-2xl border border-[#25D366]/30 bg-[#075E54]/20 overflow-hidden">
                   <div className="bg-[#075E54]/40 px-4 py-2.5 flex items-center gap-2">
                     <div className="w-2 h-2 rounded-full bg-[#25D366]" />
-                    <span className="text-xs font-bold text-[#25D366] uppercase tracking-wider">M-Pesa Payment Details</span>
+                    <span className="text-xs font-bold text-[#25D366] uppercase tracking-wider">Send money to</span>
                   </div>
-                  <div className="p-4 space-y-2.5">
+                  <div className="p-4 space-y-3">
                     <div className="flex items-center justify-between">
-                      <span className="text-xs text-muted-foreground">Number</span>
+                      <span className="text-xs text-muted-foreground">Phone number</span>
                       <div className="flex items-center gap-2">
-                        <span className="font-bold text-white text-sm">0758891491</span>
+                        <span className="font-bold text-white text-base tracking-wide">0758891491</span>
                         <button onClick={() => copyToClipboard("0758891491")} className="text-[#25D366]">
                           {copied ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
                         </button>
                       </div>
                     </div>
                     <div className="flex items-center justify-between">
-                      <span className="text-xs text-muted-foreground">Name</span>
+                      <span className="text-xs text-muted-foreground">Registered name</span>
                       <span className="font-semibold text-sm text-white">Calvin Osoro</span>
                     </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-muted-foreground">Amount</span>
-                      <span className="font-bold text-emerald-400">KES {Number(amount).toLocaleString()}</span>
+                    <div className="border-t border-white/10 pt-2 text-xs text-muted-foreground/80 leading-relaxed">
+                      Send the agreed amount. Once done, tap <strong className="text-white">I've Paid</strong> and paste the confirmation SMS.
                     </div>
                   </div>
                 </div>
@@ -965,14 +964,15 @@ function ExtendModal({ liveRequests, onClose }: { liveRequests: any[]; onClose: 
               </motion.div>
             )}
 
+            {/* ── Step 3b: Paste SMS ── */}
             {step === "submit" && (
               <motion.div key="submit" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-4">
                 <div className="text-center">
-                  <div className="w-12 h-12 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center mx-auto mb-2">
-                    <ClipboardCheck className="w-6 h-6 text-primary" />
+                  <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center mx-auto mb-2">
+                    <ClipboardCheck className="w-6 h-6 text-emerald-400" />
                   </div>
-                  <h4 className="font-bold">Paste M-Pesa SMS</h4>
-                  <p className="text-xs text-muted-foreground mt-0.5">Copy the confirmation SMS M-Pesa sent you</p>
+                  <h4 className="font-bold">Paste M-Pesa Confirmation</h4>
+                  <p className="text-xs text-muted-foreground mt-0.5">Copy the SMS that M-Pesa sent you and paste it below</p>
                 </div>
                 {error && (
                   <div className="flex items-center gap-2 text-destructive text-xs bg-destructive/10 border border-destructive/20 rounded-xl px-3 py-2.5">
@@ -980,17 +980,18 @@ function ExtendModal({ liveRequests, onClose }: { liveRequests: any[]; onClose: 
                   </div>
                 )}
                 <textarea value={mpesaMsg} onChange={e => setMpesaMsg(e.target.value)}
-                  placeholder="Paste your M-Pesa confirmation SMS here…"
-                  className="w-full h-24 px-3 py-2.5 text-xs rounded-xl border border-border bg-secondary/40 focus:outline-none focus:ring-2 focus:ring-primary/40 resize-none" />
+                  placeholder="e.g. QAB9X3FPG2 Confirmed. KES 500 sent to Calvin Osoro 0758891491..."
+                  className="w-full h-28 px-3 py-2.5 text-xs rounded-xl border border-border bg-secondary/40 focus:outline-none focus:ring-2 focus:ring-emerald-500/40 resize-none" />
                 <div className="flex gap-2.5">
-                  <Button variant="outline" className="flex-1 h-11" onClick={() => setStep("instructions")}>Back</Button>
-                  <Button variant="gradient" className="flex-1 h-11 gap-2" onClick={submitMpesa}>
-                    <Send className="w-4 h-4" /> Submit
+                  <Button variant="outline" className="flex-1 h-11" onClick={() => setStep(extensionId ? "instructions" : "form")}>Back</Button>
+                  <Button className="flex-1 h-11 gap-2 bg-emerald-600 hover:bg-emerald-700 text-white border-0" onClick={submitMpesa}>
+                    <Send className="w-4 h-4" /> Submit for Review
                   </Button>
                 </div>
               </motion.div>
             )}
 
+            {/* ── Submitting ── */}
             {step === "submitting" && (
               <motion.div key="submitting" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center py-8">
                 <Loader2 className="w-10 h-10 text-primary animate-spin mx-auto mb-3" />
@@ -998,28 +999,32 @@ function ExtendModal({ liveRequests, onClose }: { liveRequests: any[]; onClose: 
               </motion.div>
             )}
 
+            {/* ── Pending ── */}
             {step === "pending" && (
               <motion.div key="pending" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center py-8 space-y-4">
-                <Clock className="w-12 h-12 text-amber-400 mx-auto animate-pulse" />
+                <div className="w-16 h-16 rounded-full bg-amber-500/10 border-2 border-amber-500/30 flex items-center justify-center mx-auto">
+                  <Clock className="w-8 h-8 text-amber-400 animate-pulse" />
+                </div>
                 <div>
                   <h4 className="font-bold text-amber-400 text-lg">Under Review</h4>
-                  <p className="text-sm text-muted-foreground mt-1">Your confirmation is being reviewed.<br />Admin will approve and update your deadline.</p>
+                  <p className="text-sm text-muted-foreground mt-1">Your payment confirmation has been submitted.<br />Admin will review and update your deadline shortly.</p>
                 </div>
                 <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
-                  <div className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" /> Checking for approval…
+                  <div className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" /> Checking for approval every 8 seconds…
                 </div>
-                <Button variant="outline" className="h-10 px-6" onClick={onClose}>Close (we'll notify you)</Button>
+                <Button variant="outline" className="h-10 px-6" onClick={onClose}>Close — you'll see the update here</Button>
               </motion.div>
             )}
 
+            {/* ── Success ── */}
             {step === "success" && (
               <motion.div key="success" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="text-center py-8">
                 <div className="w-20 h-20 rounded-full bg-emerald-500/10 border-2 border-emerald-500/30 flex items-center justify-center mx-auto mb-5">
                   <CheckCircle2 className="w-10 h-10 text-emerald-400" />
                 </div>
                 <h3 className="text-xl font-bold mb-2 text-emerald-400">Payment Approved!</h3>
-                <p className="text-sm text-muted-foreground mb-1">KES {Number(amount).toLocaleString()} for <strong>{selectedReq?.serviceName}</strong></p>
-                <p className="text-xs text-muted-foreground mb-6">Your deadline has been updated.</p>
+                <p className="text-sm text-muted-foreground mb-1"><strong>{selectedReq?.serviceName}</strong></p>
+                <p className="text-xs text-muted-foreground mb-6">Your deadline has been updated by admin.</p>
                 <Button variant="gradient" className="h-11 px-8" onClick={onClose}>Done</Button>
               </motion.div>
             )}
@@ -1042,8 +1047,10 @@ export default function Dashboard() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [payingRequest, setPayingRequest] = useState<any>(null);
   const [showExtendModal, setShowExtendModal] = useState(false);
+  const [extendPasteMode, setExtendPasteMode] = useState(false);
   const [adminPayRequests, setAdminPayRequests] = useState<any[]>([]);
   const [payingAdminReq, setPayingAdminReq] = useState<any>(null);
+  const [myExtensions, setMyExtensions] = useState<any[]>([]);
   const createRequest = useCreateRequest();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -1092,7 +1099,7 @@ export default function Dashboard() {
     }
   }, [requestsLoading]);
 
-  // Fetch admin-initiated payment requests
+  // Fetch all extension records (admin requests + user advance payments)
   const fetchAdminRequests = async () => {
     try {
       const token = localStorage.getItem("nutterx_token");
@@ -1100,6 +1107,7 @@ export default function Dashboard() {
       if (!res.ok) return;
       const data: any[] = await res.json();
       setAdminPayRequests(data.filter(e => e.initiatedBy === "admin" && e.paymentStatus !== "paid" && e.paymentStatus !== "failed"));
+      setMyExtensions(data.filter(e => !e.initiatedBy || e.initiatedBy !== "admin"));
     } catch {}
   };
   useEffect(() => { fetchAdminRequests(); }, []);
@@ -1275,17 +1283,17 @@ export default function Dashboard() {
         {/* ── Pay in Advance / Extend Service ─────────────────── */}
         <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}
           className="mb-8 rounded-2xl border border-indigo-500/25 bg-gradient-to-r from-indigo-500/8 via-indigo-500/5 to-transparent overflow-hidden">
-          <div className="p-5 flex flex-col sm:flex-row sm:items-center gap-4">
-            <div className="flex items-center gap-4 flex-1 min-w-0">
-              <div className="w-11 h-11 rounded-2xl bg-indigo-500/15 border border-indigo-500/25 flex items-center justify-center shrink-0">
+          <div className="p-5 flex flex-col sm:flex-row sm:items-start gap-4">
+            <div className="flex items-start gap-4 flex-1 min-w-0">
+              <div className="w-11 h-11 rounded-2xl bg-indigo-500/15 border border-indigo-500/25 flex items-center justify-center shrink-0 mt-0.5">
                 <CalendarClock className="w-6 h-6 text-indigo-400" />
               </div>
               <div className="min-w-0">
                 <div className="font-bold text-sm text-indigo-300">Pay in Advance to Extend Your Service</div>
                 {liveRequests.length > 0 ? (
                   <>
-                    <div className="text-xs text-muted-foreground mt-0.5">
-                      Pay now to extend your deadline — admin will confirm and update it for you.
+                    <div className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
+                      Select a service, tell us what the payment is for, then send money via M-Pesa to our number and paste the confirmation SMS. Admin will update your deadline after review.
                     </div>
                     <div className="flex flex-wrap gap-1.5 mt-2">
                       {liveRequests.map(r => (
@@ -1303,13 +1311,27 @@ export default function Dashboard() {
                 )}
               </div>
             </div>
-            <Button
-              onClick={() => setShowExtendModal(true)}
-              disabled={liveRequests.length === 0}
-              className="bg-indigo-500 hover:bg-indigo-600 disabled:opacity-40 disabled:cursor-not-allowed text-white border-0 h-10 px-5 gap-2 shrink-0 self-start sm:self-center"
-            >
-              <DollarSign className="w-4 h-4" /> Pay in Advance
-            </Button>
+            {liveRequests.length > 0 ? (
+              <div className="flex flex-col gap-2 shrink-0 w-full sm:w-auto">
+                <Button
+                  onClick={() => { setExtendPasteMode(false); setShowExtendModal(true); }}
+                  className="bg-indigo-500 hover:bg-indigo-600 text-white border-0 h-10 px-5 gap-2 w-full sm:w-auto"
+                >
+                  <Smartphone className="w-4 h-4" /> Make Payment
+                </Button>
+                <Button
+                  onClick={() => { setExtendPasteMode(true); setShowExtendModal(true); }}
+                  variant="outline"
+                  className="h-10 px-5 gap-2 w-full sm:w-auto border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/8 hover:border-emerald-500/60"
+                >
+                  <ClipboardCheck className="w-4 h-4" /> Already Paid?
+                </Button>
+              </div>
+            ) : (
+              <Button disabled className="opacity-40 cursor-not-allowed h-10 px-5 gap-2 shrink-0 self-start">
+                <DollarSign className="w-4 h-4" /> Pay in Advance
+              </Button>
+            )}
           </div>
         </motion.div>
 
@@ -1362,6 +1384,56 @@ export default function Dashboard() {
             </motion.div>
           )}
         </div>
+
+        {/* ── Advance Payment History ───────────────────────────── */}
+        {myExtensions.length > 0 && (
+          <div className="mb-8">
+            <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2 mb-4">
+              <CalendarClock className="w-3.5 h-3.5" /> Advance Payment History
+            </h2>
+            <div className="bg-card border border-border rounded-2xl overflow-hidden divide-y divide-border">
+              {myExtensions.map(ext => {
+                const statusMap: Record<string, { label: string; color: string; dot: string }> = {
+                  unpaid:  { label: "Unpaid",    color: "text-muted-foreground", dot: "bg-muted-foreground" },
+                  pending: { label: "Under Review", color: "text-amber-400",     dot: "bg-amber-400" },
+                  paid:    { label: "Approved",   color: "text-emerald-400",     dot: "bg-emerald-400" },
+                  failed:  { label: "Rejected",   color: "text-red-400",         dot: "bg-red-400" },
+                };
+                const s = statusMap[ext.paymentStatus] || statusMap.unpaid;
+                return (
+                  <div key={ext._id} className="p-4 flex flex-col sm:flex-row sm:items-center gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex flex-wrap items-center gap-2 mb-1">
+                        <span className="font-semibold text-sm">{ext.serviceName || ext.serviceRequest?.serviceName}</span>
+                        <span className={cn("inline-flex items-center gap-1.5 text-xs font-medium", s.color)}>
+                          <span className={cn("w-1.5 h-1.5 rounded-full", s.dot, ext.paymentStatus === "pending" && "animate-pulse")} />
+                          {s.label}
+                        </span>
+                      </div>
+                      <p className="text-xs text-muted-foreground line-clamp-1">{ext.purpose}</p>
+                      <div className="text-xs text-muted-foreground/60 mt-0.5">{formatDate(ext.createdAt)}</div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {Number(ext.amount) > 0 && (
+                        <span className="text-xs font-bold text-emerald-400">KES {Number(ext.amount).toLocaleString()}</span>
+                      )}
+                      {ext.paymentStatus === "unpaid" && (
+                        <button
+                          onClick={() => { setExtendPasteMode(false); setShowExtendModal(true); }}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 text-xs font-semibold hover:bg-indigo-500/20 transition-colors">
+                          <Smartphone className="w-3.5 h-3.5" /> Pay Now
+                        </button>
+                      )}
+                      {ext.paymentStatus === "paid" && (
+                        <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* My Requests */}
         <div>
@@ -1492,7 +1564,8 @@ export default function Dashboard() {
         {showExtendModal && liveRequests.length > 0 && (
           <ExtendModal
             liveRequests={liveRequests}
-            onClose={() => setShowExtendModal(false)}
+            startAtPaste={extendPasteMode}
+            onClose={() => { setShowExtendModal(false); fetchAdminRequests(); }}
           />
         )}
       </AnimatePresence>
