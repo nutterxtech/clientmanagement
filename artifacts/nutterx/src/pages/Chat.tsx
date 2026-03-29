@@ -20,7 +20,8 @@ type Screen = "list" | "chat";
 /* ── URL detector ──────────────────────────────────────────── */
 const URL_RE = /(https?:\/\/[^\s<>"']+)/g;
 
-function renderContent(text: string, onLink: (url: string) => void) {
+function renderContent(text: string | undefined | null, onLink: (url: string) => void) {
+  if (!text) return null;
   const parts = text.split(URL_RE);
   return parts.map((part, i) =>
     URL_RE.test(part) ? (
