@@ -40,15 +40,24 @@ export function useSocket() {
 
       // Global event listeners
       socketRef.current.on('new_message', (message: any) => {
-        // Optimistically update the specific chat's messages
-        queryClient.setQueryData(getGetChatMessagesQueryKey(message.chatId), (old: any) => {
-          if (!old) return [message];
-          // avoid duplicates
-          if (old.some((m: any) => m._id === message._id)) return old;
-          return [...old, message];
-        });
-        
-        // Also invalidate chats list to update last message/unread count
+        // Only do an optimistic cache insert when the payload is a full message
+        // object (has _id, type, content).  View-once events emit a lightweight
+        // { chatId, messageId } stub — inserting that into the cache causes the
+        // UUID to render as a plain string.  For those, just invalidate so the
+        // proper API fetch fires.
+        if (message._id && message.content !== undefined && message.type !== undefined) {
+          queryClient.setQueryData(getGetChatMessagesQueryKey(message.chatId), (old: any) => {
+            if (!old) return [message];
+            if (old.some((m: any) => m._id === message._id)) return old;
+            return [...old, message];
+          });
+        } else {
+          // Incomplete payload (e.g. view-once stub) — just invalidate so the
+          // messages endpoint is re-fetched with full, correct data.
+          queryClient.invalidateQueries({ queryKey: getGetChatMessagesQueryKey(message.chatId) });
+        }
+
+        // Always refresh the chats list (unread count / last message)
         queryClient.invalidateQueries({ queryKey: getGetChatsQueryKey() });
       });
 
