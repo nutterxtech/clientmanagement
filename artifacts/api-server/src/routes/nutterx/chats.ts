@@ -19,6 +19,7 @@ async function buildChatResponse(db: ReturnType<typeof getDb>, chatRows: any[], 
     if (chat.lastMessageId) {
       const [lm] = await db.select({
         id: messages.id, content: messages.content, createdAt: messages.createdAt,
+        type: messages.type,
         sender: { id: users.id, name: users.name },
       }).from(messages)
         .innerJoin(users, eq(messages.senderId, users.id))
@@ -133,41 +134,85 @@ router.get("/:chatId/messages", authenticate, async (req: AuthRequest, res: Resp
       .where(and(eq(chatParticipants.chatId, chatId), eq(chatParticipants.userId, userId))).limit(1);
     if (!part) { res.status(404).json({ message: "Chat not found" }); return; }
 
-    const msgs = await db.select({
-      id: messages.id, content: messages.content, read: messages.read,
-      createdAt: messages.createdAt, chatId: messages.chatId, replyToId: messages.replyToId,
-      sender: { id: users.id, name: users.name, email: users.email, avatar: users.avatar },
-    }).from(messages)
-      .innerJoin(users, eq(messages.senderId, users.id))
-      .where(eq(messages.chatId, chatId));
+    // Use raw SQL to guarantee all fields (including 'type') are returned correctly
+    function rawRows(r: any): any[] {
+      return Array.isArray(r) ? r : (r?.rows ?? []);
+    }
 
-    msgs.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-    const paged = msgs.slice((page - 1) * limit, page * limit).reverse();
+    const msgsRaw = rawRows(await db.execute(sql`
+      SELECT
+        m.id, m.content, m.read, m.created_at AS "createdAt",
+        m.chat_id AS "chatId", m.reply_to_id AS "replyToId",
+        m.type, m.sender_id AS "senderId",
+        u.id AS "senderId2", u.name AS "senderName",
+        u.email AS "senderEmail", u.avatar AS "senderAvatar"
+      FROM messages m
+      INNER JOIN users u ON m.sender_id = u.id
+      WHERE m.chat_id = ${chatId}
+      ORDER BY m.created_at DESC
+      LIMIT ${limit} OFFSET ${(page - 1) * limit}
+    `));
+
+    const paged = [...msgsRaw].reverse().map((m: any) => ({
+      id: m.id,
+      content: m.content,
+      read: m.read,
+      createdAt: m.createdAt,
+      chatId: m.chatId,
+      replyToId: m.replyToId,
+      type: m.type,
+      senderId: m.senderId,
+      sender: { id: m.senderId2, _id: m.senderId2, name: m.senderName, email: m.senderEmail, avatar: m.senderAvatar },
+    }));
 
     // Fetch reply-to messages in one batch
-    const replyToIds = paged.map(m => m.replyToId).filter(Boolean) as string[];
+    const replyToIds = paged.map((m: any) => m.replyToId).filter(Boolean) as string[];
     const replyMap: Record<string, any> = {};
     if (replyToIds.length) {
-      const replyMsgs = await db.select({
-        id: messages.id, content: messages.content,
-        sender: { id: users.id, name: users.name },
-      }).from(messages)
-        .innerJoin(users, eq(messages.senderId, users.id))
-        .where(inArray(messages.id, replyToIds));
-      for (const r of replyMsgs) {
-        replyMap[r.id] = { _id: r.id, content: r.content, sender: { _id: r.sender.id, name: r.sender.name } };
+      const replyRaw = rawRows(await db.execute(sql`
+        SELECT m.id, m.content, u.id AS "senderId", u.name AS "senderName"
+        FROM messages m INNER JOIN users u ON m.sender_id = u.id
+        WHERE m.id = ANY(${replyToIds}::uuid[])
+      `));
+      for (const r of replyRaw) {
+        replyMap[r.id] = { _id: r.id, content: r.content, sender: { _id: r.senderId, name: r.senderName } };
       }
     }
 
-    // Mark as read
-    await db.update(messages)
-      .set({ read: true })
-      .where(and(eq(messages.chatId, chatId), ne(messages.senderId, userId), eq(messages.read, false)));
+    // Fetch view-once captions + per-user viewed status
+    const viewOnceIds = paged
+      .filter((m: any) => m.type === "view_once_image" && m.content)
+      .map((m: any) => m.content as string);
+    const captionMap: Record<string, string | null> = {};
+    const viewedByMe = new Set<string>();
+    if (viewOnceIds.length) {
+      try {
+        const capRows = rawRows(await db.execute(sql`
+          SELECT id, caption FROM view_once_images WHERE id = ANY(${viewOnceIds}::uuid[])
+        `));
+        for (const r of capRows) captionMap[r.id] = r.caption ?? null;
 
-    res.json(paged.map(m => ({
+        const viewedRows = rawRows(await db.execute(sql`
+          SELECT image_id FROM view_once_views
+          WHERE image_id = ANY(${viewOnceIds}::uuid[]) AND viewer_id = ${userId}
+        `));
+        for (const r of viewedRows) viewedByMe.add(r.image_id);
+      } catch { /* tables might not exist yet */ }
+    }
+
+    // Mark as read
+    await db.execute(sql`
+      UPDATE messages SET read = true
+      WHERE chat_id = ${chatId} AND sender_id != ${userId} AND read = false
+    `);
+
+    res.json(paged.map((m: any) => ({
       ...m, _id: m.id,
-      sender: { ...m.sender, _id: m.sender.id },
       replyTo: m.replyToId ? (replyMap[m.replyToId] ?? null) : null,
+      viewOnceCaption: m.type === "view_once_image" ? (captionMap[m.content] ?? null) : undefined,
+      viewOnceViewed:  m.type === "view_once_image"
+        ? (m.senderId === userId ? false : viewedByMe.has(m.content))
+        : undefined,
     })));
   } catch {
     res.status(500).json({ message: "Failed to fetch messages" });

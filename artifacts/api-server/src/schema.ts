@@ -47,6 +47,19 @@ export const messages = pgTable("messages", {
   content:   text("content").notNull(),
   read:      boolean("read").notNull().default(false),
   replyToId: uuid("reply_to_id"),
+  type:      text("type").notNull().default("text"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const viewOnceImages = pgTable("view_once_images", {
+  id:        uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  messageId: uuid("message_id").references(() => messages.id, { onDelete: "cascade" }),
+  senderId:  uuid("sender_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  chatId:    uuid("chat_id").notNull().references(() => chats.id, { onDelete: "cascade" }),
+  imageData: text("image_data"),
+  mimeType:  text("mime_type").notNull().default("image/jpeg"),
+  viewed:    boolean("viewed").notNull().default(false),
+  viewedAt:  timestamp("viewed_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
