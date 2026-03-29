@@ -331,6 +331,7 @@ export default function Chat() {
   const [sendingViewOnce, setSendingViewOnce] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [profileModal, setProfileModal] = useState(false);
+  const [profileHintDismissed, setProfileHintDismissed] = useState(false);
   const [profileUrlInput, setProfileUrlInput] = useState("");
   const [savingProfile, setSavingProfile] = useState(false);
 
@@ -766,6 +767,36 @@ export default function Chat() {
                   />
                 </div>
               </div>
+
+              {/* Profile photo hint — shown only when user has no avatar and hasn't dismissed */}
+              {!(user as any)?.avatar && !profileHintDismissed && (
+                <div
+                  className="flex items-center gap-3 px-4 py-2.5 shrink-0"
+                  style={{ background: "#e7f8ee", borderBottom: "1px solid #c8efd8" }}
+                >
+                  <button
+                    onClick={() => { setProfileUrlInput(""); setProfileModal(true); }}
+                    className="w-9 h-9 rounded-full shrink-0 flex items-center justify-center border-2 border-dashed border-[#25D366]"
+                    style={{ background: "rgba(37,211,102,0.12)" }}
+                  >
+                    <Camera className="w-4 h-4" style={{ color: "#075E54" }} />
+                  </button>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-semibold" style={{ color: "#075E54" }}>Add a profile photo</p>
+                    <p className="text-[11px] leading-tight" style={{ color: "#4a8f70" }}>
+                      Tap your initial in the top-left to personalise your account.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setProfileHintDismissed(true)}
+                    className="shrink-0 p-1 rounded-full"
+                    style={{ color: "#4a8f70" }}
+                    aria-label="Dismiss"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
 
               <div className="flex-1 overflow-y-auto bg-background">
                 {/* Conversations */}
