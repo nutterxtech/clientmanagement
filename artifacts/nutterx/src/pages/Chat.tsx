@@ -101,6 +101,7 @@ export default function Chat() {
   const [replyTo, setReplyTo]           = useState<{ id: string; content: string; senderName: string } | null>(null);
   const [swipeOffset, setSwipeOffset]   = useState<{ id: string; x: number } | null>(null);
   const swipeMeta = useRef<{ id: string; startX: number } | null>(null);
+  const [optimisticMsgs, setOptimisticMsgs] = useState<any[]>([]);
 
   const { data: messages, isLoading: messagesLoading, refetch: refetchMessages } =
     useGetChatMessages(activeChatId || "", undefined, {
@@ -144,24 +145,55 @@ export default function Chat() {
     return () => { socket.off("new_message", handler); };
   }, [socket, activeChatId, refetchMessages, refetchChats]);
 
-  const openChat = (chatId: string) => { setActiveChatId(chatId); setScreen("chat"); };
-  const goBack   = () => { setScreen("list"); setActiveChatId(null); setReplyTo(null); };
+  const openChat = (chatId: string) => {
+    setOptimisticMsgs([]);
+    setReplyTo(null);
+    setActiveChatId(chatId);
+    setScreen("chat");
+  };
+  const goBack = () => {
+    setScreen("list");
+    setActiveChatId(null);
+    setReplyTo(null);
+    setOptimisticMsgs([]);
+  };
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!message.trim() || !activeChatId) return;
     const content = message;
     const replyToId = replyTo?.id;
+    const replySnapshot = replyTo;
     setMessage("");
     setReplyTo(null);
+
+    // Add message optimistically so it appears immediately
+    const tempId = `temp_${Date.now()}_${Math.random()}`;
+    const optimistic = {
+      _id: tempId,
+      content,
+      chatId: activeChatId,
+      sender: { _id: user?._id, name: user?.name },
+      createdAt: new Date().toISOString(),
+      replyToId,
+      replyTo: replySnapshot
+        ? { sender: { name: replySnapshot.senderName }, content: replySnapshot.content }
+        : undefined,
+      _optimistic: true,
+    };
+    setOptimisticMsgs(prev => [...prev, optimistic]);
+
     try {
       await sendMessageMutation.mutateAsync({
         chatId: activeChatId,
         data: { content, replyToId } as any,
       });
+      // Server confirmed — drop optimistic (socket will deliver the real message)
+      setOptimisticMsgs(prev => prev.filter(m => m._id !== tempId));
       refetchMessages();
     } catch {
       setMessage(content);
+      setOptimisticMsgs(prev => prev.filter(m => m._id !== tempId));
     }
   };
 
@@ -261,8 +293,24 @@ export default function Chat() {
   const activeChat        = chats?.find(c => c._id === activeChatId);
   const activeChatOtherId = activeChat ? getChatOtherId(activeChat) : null;
 
+  // Combine server messages with optimistic ones (deduplicate by content proximity)
+  const allMessages = [
+    ...(messages || []),
+    ...optimisticMsgs.filter(
+      om => om.chatId === activeChatId &&
+        !(messages || []).some((m: any) => m.content === om.content && m.sender?._id === om.sender?._id)
+    ),
+  ];
+
+  // Scroll to bottom when optimistic message added
+  useEffect(() => {
+    if (optimisticMsgs.length > 0) {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [optimisticMsgs]);
+
   return (
-    <div className="h-dvh flex flex-col pt-16">
+    <div className="fixed inset-0 flex flex-col overflow-hidden" style={{ paddingTop: 64 }}>
       {/* Link preview modal */}
       {previewUrl && <LinkModal url={previewUrl} onClose={() => setPreviewUrl(null)} />}
 
@@ -275,7 +323,7 @@ export default function Chat() {
               key="list"
               initial={{ x: 0, opacity: 1 }}
               exit={{ x: "-100%", opacity: 0 }}
-              transition={{ duration: 0.28, ease: "easeInOut" }}
+              transition={{ duration: 0.16, ease: "easeInOut" }}
               className="absolute inset-0 flex flex-col bg-background"
             >
               {/* List Header */}
@@ -514,13 +562,13 @@ export default function Chat() {
                   .dark { --wa-bg: #0D1B1E; }
                 `}</style>
 
-                {messagesLoading && !(messages as unknown as any[])?.length ? (
+                {messagesLoading && !allMessages.length ? (
                   <div className="flex justify-center mt-10">
                     <div className="w-8 h-8 border-[3px] rounded-full animate-spin" style={{ borderColor: "#25D366", borderTopColor: "transparent" }} />
                   </div>
-                ) : messages && messages.length > 0 ? (
+                ) : allMessages.length > 0 ? (
                   <AnimatePresence initial={false}>
-                    {messages.map((msg: any) => {
+                    {allMessages.map((msg: any) => {
                       const isOwn = msg.sender?._id === user?._id;
                       const msgSwipe = swipeOffset?.id === msg._id ? swipeOffset.x : 0;
                       const isSwiping = swipeOffset?.id === msg._id;
@@ -528,7 +576,7 @@ export default function Chat() {
                         <motion.div
                           key={msg._id}
                           initial={{ opacity: 0, y: 6, scale: 0.97 }}
-                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          animate={{ opacity: msg._optimistic ? 0.72 : 1, y: 0, scale: 1 }}
                           transition={{ duration: 0.16, type: "spring", stiffness: 340, damping: 30 }}
                           className={cn("flex items-center gap-2 group", isOwn ? "justify-end" : "justify-start")}
                           onTouchStart={e => handleMsgTouchStart(msg._id, e)}
@@ -683,8 +731,8 @@ export default function Chat() {
                     onChange={e => setMessage(e.target.value)}
                     placeholder="Type a message"
                     autoComplete="off"
-                    className="flex-1 rounded-full px-5 h-11 text-sm outline-none border-0"
-                    style={{ background: "#FFFFFF", color: "#111", boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }}
+                    className="flex-1 rounded-full px-5 h-11 outline-none border-0"
+                    style={{ background: "#FFFFFF", color: "#111", boxShadow: "0 1px 3px rgba(0,0,0,0.08)", fontSize: 16 }}
                   />
                   <motion.button
                     type="submit"
