@@ -20,9 +20,9 @@ router.post("/initiate", authenticate, async (req: AuthRequest, res: Response): 
   try {
     const db = getDb();
     const { serviceRequestId, purpose, amount } = req.body;
-    if (!serviceRequestId || !purpose || !amount) { res.status(400).json({ message: "serviceRequestId, purpose and amount are required" }); return; }
-    const amt = Number(amount);
-    if (isNaN(amt) || amt < 1) { res.status(400).json({ message: "Invalid amount" }); return; }
+    if (!serviceRequestId || !purpose) { res.status(400).json({ message: "serviceRequestId and purpose are required" }); return; }
+    const amt = amount ? Number(amount) : 0;
+    if (isNaN(amt) || amt < 0) { res.status(400).json({ message: "Invalid amount" }); return; }
 
     const [svcReq] = await db.select().from(serviceRequests).where(eq(serviceRequests.id, serviceRequestId)).limit(1);
     if (!svcReq) { res.status(404).json({ message: "Service request not found" }); return; }
@@ -31,7 +31,7 @@ router.post("/initiate", authenticate, async (req: AuthRequest, res: Response): 
 
     const [ext] = await db.insert(deadlinePayments).values({
       userId: req.user!.id, serviceRequestId, serviceName: svcReq.serviceName,
-      purpose: purpose.trim(), amount: String(amt), currency: "KES", paymentStatus: "unpaid",
+      purpose: purpose.trim(), amount: String(amt || 0), currency: "KES", paymentStatus: "unpaid",
     }).returning();
 
     res.json({ extensionId: ext.id, message: "Extension request created. Please pay via M-Pesa and submit your confirmation." });
