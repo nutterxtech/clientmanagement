@@ -174,6 +174,63 @@ router.get("/ipn", async (req, res): Promise<void> => {
   } catch { res.status(500).json({ message: "IPN error" }); }
 });
 
+// User submits M-Pesa message after paying manually
+router.post("/submit-mpesa/:id", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const db = getDb();
+    const [ext] = await db.select().from(deadlinePayments).where(eq(deadlinePayments.id, req.params["id"]!)).limit(1);
+    if (!ext) { res.status(404).json({ message: "Not found" }); return; }
+    if (ext.userId !== req.user!.id) { res.status(403).json({ message: "Not authorized" }); return; }
+    if (ext.paymentStatus === "paid") { res.status(400).json({ message: "Already paid" }); return; }
+
+    const { mpesaMessage } = req.body;
+    if (!mpesaMessage?.trim()) { res.status(400).json({ message: "M-Pesa message is required" }); return; }
+
+    await db.update(deadlinePayments).set({
+      paymentStatus: "pending",
+      mpesaMessage: mpesaMessage.trim(),
+      updatedAt: new Date(),
+    }).where(eq(deadlinePayments.id, ext.id));
+
+    res.json({ message: "Submitted for review" });
+  } catch { res.status(500).json({ message: "Failed to submit" }); }
+});
+
+// Admin approves extension payment (marks paid + updates deadline)
+router.post("/approve/:id", authenticate, requireAdmin, async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const db = getDb();
+    const [ext] = await db.select().from(deadlinePayments).where(eq(deadlinePayments.id, req.params["id"]!)).limit(1);
+    if (!ext) { res.status(404).json({ message: "Not found" }); return; }
+
+    const { adminNotes, newDeadline } = req.body;
+    const update: any = { paymentStatus: "paid", adminConfirmed: true, updatedAt: new Date() };
+    if (adminNotes) update.adminNotes = adminNotes;
+    if (newDeadline) {
+      update.newDeadline = new Date(newDeadline);
+      await db.update(serviceRequests).set({ subscriptionEndsAt: new Date(newDeadline), updatedAt: new Date() }).where(eq(serviceRequests.id, ext.serviceRequestId));
+    }
+    await db.update(deadlinePayments).set(update).where(eq(deadlinePayments.id, ext.id));
+    res.json({ message: "Approved" });
+  } catch { res.status(500).json({ message: "Failed to approve" }); }
+});
+
+// Admin rejects extension payment
+router.post("/reject/:id", authenticate, requireAdmin, async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const db = getDb();
+    const [ext] = await db.select().from(deadlinePayments).where(eq(deadlinePayments.id, req.params["id"]!)).limit(1);
+    if (!ext) { res.status(404).json({ message: "Not found" }); return; }
+
+    await db.update(deadlinePayments).set({
+      paymentStatus: "unpaid",
+      mpesaMessage: null,
+      updatedAt: new Date(),
+    }).where(eq(deadlinePayments.id, ext.id));
+    res.json({ message: "Rejected" });
+  } catch { res.status(500).json({ message: "Failed to reject" }); }
+});
+
 router.get("/admin", authenticate, requireAdmin, async (_req: AuthRequest, res: Response): Promise<void> => {
   try {
     const db = getDb();

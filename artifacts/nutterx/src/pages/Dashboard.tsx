@@ -9,8 +9,9 @@ import { cn } from "@/lib/utils";
 import {
   Plus, Clock, FileText, CheckCircle, Loader2, X,
   MessageSquare, Globe, TrendingUp, Send, ShoppingCart, Zap,
-  ChevronRight, Smartphone, Lock, CheckCircle2, AlertCircle, Award,
-  CalendarClock, ArrowUpRight, DollarSign, RefreshCw, Banknote, Bell
+  ChevronRight, Smartphone, CheckCircle2, AlertCircle, Award,
+  CalendarClock, ArrowUpRight, DollarSign, RefreshCw, Banknote, Bell,
+  Copy, ClipboardCheck
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useForm } from "react-hook-form";
@@ -40,43 +41,23 @@ const fadeItem = {
   animate: { opacity: 1, y: 0, transition: { duration: 0.35 } },
 };
 
-// ── Payment Modal ────────────────────────────────────────────
-type PaymentStep = "phone" | "sending" | "pesapal" | "waiting" | "success" | "failed";
+// ── Payment Modal (manual M-Pesa) ────────────────────────────
+type PaymentStep = "instructions" | "submit" | "submitting" | "pending" | "success" | "failed";
 
 function PaymentModal({ request, onClose, onPaid }: { request: any; onClose: () => void; onPaid: () => void }) {
-  const [step, setStep] = useState<PaymentStep>("phone");
-  const [error, setError] = useState("");
-  const [orderId, setOrderId] = useState("");
-  const [redirectUrl, setRedirectUrl] = useState("");
+  const [step, setStep] = useState<PaymentStep>(
+    request.paymentStatus === "pending" ? "pending" :
+    request.paymentStatus === "paid"    ? "success" : "instructions"
+  );
+  const [mpesaMsg, setMpesaMsg] = useState("");
+  const [error, setError]       = useState("");
+  const [copied, setCopied]     = useState(false);
   const { toast } = useToast();
 
-  const initiatePayment = async () => {
-    setError(""); setStep("sending");
-
-    try {
-      const token = localStorage.getItem("nutterx_token");
-      const res = await fetch("/api/payment/initiate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ requestId: request._id }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || "Payment failed");
-      setOrderId(data.orderTrackingId || "");
-      setRedirectUrl(data.redirectUrl || "");
-      setStep("pesapal");
-    } catch (err: any) {
-      setStep("phone");
-      setError(err.message || "Could not initiate payment");
-    }
-  };
-
-  // Poll as soon as an order exists (both during pesapal and waiting steps)
+  // Poll for approval when pending
   useEffect(() => {
-    if (!orderId || step === "phone" || step === "sending" || step === "success" || step === "failed") return;
-    let attempts = 0;
+    if (step !== "pending") return;
     const interval = setInterval(async () => {
-      attempts++;
       try {
         const token = localStorage.getItem("nutterx_token");
         const res = await fetch(`/api/payment/status/${request._id}`, { headers: { Authorization: `Bearer ${token}` } });
@@ -85,177 +66,197 @@ function PaymentModal({ request, onClose, onPaid }: { request: any; onClose: () 
           clearInterval(interval);
           setStep("success");
           onPaid();
-          toast({ title: "Payment confirmed!", description: "Your M-Pesa payment was received." });
-        } else if (data.paymentStatus === "failed" || attempts >= 72) {
-          clearInterval(interval);
-          setStep("failed");
+          toast({ title: "Payment approved!", description: "Your payment has been confirmed by our team." });
         }
       } catch { /* keep polling */ }
-    }, 5000);
+    }, 8000);
     return () => clearInterval(interval);
-  }, [orderId, step]);
+  }, [step]);
 
-  const isPesapal = step === "pesapal";
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  const submitMpesa = async () => {
+    if (!mpesaMsg.trim()) { setError("Please paste your M-Pesa confirmation message."); return; }
+    setError(""); setStep("submitting");
+    try {
+      const token = localStorage.getItem("nutterx_token");
+      const res = await fetch(`/api/payment/submit-mpesa/${request._id}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ mpesaMessage: mpesaMsg.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Submission failed");
+      setStep("pending");
+    } catch (err: any) {
+      setError(err.message || "Failed to submit. Try again.");
+      setStep("submit");
+    }
+  };
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
       className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-sm"
-      onClick={e => { if (e.target === e.currentTarget && step !== "waiting" && step !== "sending") onClose(); }}>
+      onClick={e => { if (e.target === e.currentTarget && step !== "submitting" && step !== "pending") onClose(); }}>
       <motion.div
         initial={{ y: 40, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 40, opacity: 0 }}
         transition={{ type: "spring", stiffness: 300, damping: 30 }}
-        className={cn(
-          "bg-card border border-border rounded-t-3xl sm:rounded-3xl w-full shadow-2xl",
-          isPesapal ? "sm:max-w-lg" : "sm:max-w-md"
-        )}
+        className="bg-card border border-border rounded-t-3xl sm:rounded-3xl w-full sm:max-w-md shadow-2xl"
       >
         <div className="flex justify-center pt-3 pb-1 sm:hidden"><div className="w-10 h-1 rounded-full bg-border" /></div>
 
-        <div className={cn("p-6", isPesapal && "p-4")}>
-          {/* Header bar when showing Pesapal iframe */}
-          {isPesapal ? (
-            <div className="flex items-center justify-between mb-3">
-              <div>
-                <h3 className="font-bold text-base">Complete M-Pesa Payment</h3>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Enter your number in the form below &amp; tap <strong>Proceed</strong>
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="text-xs font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-2.5 py-1">
-                  KES {request.paymentAmount?.toLocaleString()}
-                </div>
-                <button onClick={onClose} className="w-8 h-8 rounded-full bg-secondary/60 flex items-center justify-center hover:bg-secondary transition-colors">
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
+        <div className="p-6">
+          {/* Service info header */}
+          <div className="flex items-center gap-3 mb-5 p-3.5 bg-secondary/40 rounded-xl border border-border">
+            <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center shrink-0">
+              <Zap className="w-5 h-5 text-emerald-400" />
             </div>
-          ) : (
-            /* Service info for non-iframe steps */
-            <div className="flex items-center gap-3 mb-6 p-3.5 bg-secondary/40 rounded-xl border border-border">
-              <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
-                <Zap className="w-5 h-5 text-emerald-400" />
-              </div>
-              <div>
-                <div className="font-semibold text-sm">{request.serviceName}</div>
-                <div className="text-xs text-muted-foreground">Amount due: <span className="font-bold text-emerald-400">KES {request.paymentAmount?.toLocaleString()}</span></div>
-              </div>
+            <div className="flex-1 min-w-0">
+              <div className="font-semibold text-sm truncate">{request.serviceName}</div>
+              <div className="text-xs text-muted-foreground">Amount due: <span className="font-bold text-emerald-400">KES {request.paymentAmount?.toLocaleString()}</span></div>
             </div>
-          )}
+            {step !== "pending" && step !== "submitting" && (
+              <button onClick={onClose} className="w-8 h-8 rounded-full bg-secondary/60 flex items-center justify-center hover:bg-secondary transition-colors shrink-0">
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
 
           <AnimatePresence mode="wait">
-            {step === "phone" && (
-              <motion.div key="phone" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                <div className="text-center mb-5">
-                  <div className="w-14 h-14 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center mx-auto mb-3">
-                    <Smartphone className="w-7 h-7 text-primary" />
+            {/* ── Step 1: M-Pesa instructions ── */}
+            {step === "instructions" && (
+              <motion.div key="instructions" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-4">
+                <div className="text-center">
+                  <div className="w-14 h-14 rounded-2xl bg-[#25D366]/10 border border-[#25D366]/30 flex items-center justify-center mx-auto mb-3">
+                    <Smartphone className="w-7 h-7 text-[#25D366]" />
                   </div>
                   <h3 className="text-lg font-bold">Pay via M-Pesa</h3>
-                  <p className="text-sm text-muted-foreground mt-1">Tap below to open the secure M-Pesa payment form</p>
+                  <p className="text-xs text-muted-foreground mt-1">Send payment to the number below, then come back to confirm</p>
                 </div>
-                <div className="space-y-4">
-                  <AnimatePresence>
-                    {error && (
-                      <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
-                        className="flex items-center gap-2 text-destructive text-xs bg-destructive/10 border border-destructive/20 rounded-xl px-3 py-2.5">
-                        <AlertCircle className="w-4 h-4 shrink-0" />{error}
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                  <div className="p-3 bg-emerald-500/5 border border-emerald-500/20 rounded-xl text-xs text-emerald-400/80 leading-relaxed">
-                    A secure M-Pesa payment form will open. Enter your phone number and tap <strong>Proceed</strong> to receive the M-Pesa prompt.
-                  </div>
-                  <div className="flex gap-2.5">
-                    <Button variant="outline" className="flex-1 h-11" onClick={onClose}>Cancel</Button>
-                    <Button variant="gradient" className="flex-1 h-11 gap-2" onClick={initiatePayment}>
-                      <Lock className="w-4 h-4" /> Pay KES {request.paymentAmount?.toLocaleString()}
-                    </Button>
-                  </div>
-                </div>
-              </motion.div>
-            )}
 
-            {step === "sending" && (
-              <motion.div key="sending" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="text-center py-6">
-                <div className="relative w-20 h-20 mx-auto mb-5">
-                  <div className="absolute inset-0 rounded-full border-4 border-primary/20" />
-                  <div className="absolute inset-0 rounded-full border-4 border-t-primary animate-spin" />
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <Loader2 className="w-8 h-8 text-primary animate-spin" />
+                {/* M-Pesa payment card */}
+                <div className="rounded-2xl border border-[#25D366]/30 bg-[#075E54]/20 overflow-hidden">
+                  <div className="bg-[#075E54]/40 px-4 py-2.5 flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full bg-[#25D366]" />
+                    <span className="text-xs font-bold text-[#25D366] uppercase tracking-wider">M-Pesa Payment Details</span>
+                  </div>
+                  <div className="p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-muted-foreground">Send to Number</span>
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-white text-sm">0758891491</span>
+                        <button onClick={() => copyToClipboard("0758891491")}
+                          className="text-[#25D366] hover:text-[#25D366]/80 transition-colors">
+                          {copied ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                        </button>
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-muted-foreground">M-Pesa Name</span>
+                      <span className="font-semibold text-sm text-white">Calvin Osoro</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-muted-foreground">Amount</span>
+                      <span className="font-bold text-emerald-400 text-base">KES {request.paymentAmount?.toLocaleString()}</span>
+                    </div>
+                    <div className="pt-1 border-t border-white/10">
+                      <p className="text-xs text-muted-foreground">Reference (optional)</p>
+                      <p className="text-xs text-white/80 mt-0.5">{request.serviceName}</p>
+                    </div>
                   </div>
                 </div>
-                <h3 className="text-lg font-bold mb-2">Preparing payment…</h3>
-                <p className="text-sm text-muted-foreground">Opening secure M-Pesa payment form.</p>
-              </motion.div>
-            )}
 
-            {step === "pesapal" && redirectUrl && (
-              <motion.div key="pesapal" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                <div className="rounded-xl overflow-hidden border border-border bg-white" style={{ height: 480 }}>
-                  <iframe
-                    src={redirectUrl}
-                    width="100%"
-                    height="100%"
-                    style={{ border: "none", display: "block" }}
-                    title="M-Pesa Payment"
-                    allow="payment"
-                  />
-                </div>
-                <div className="mt-3 flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                    Waiting for payment…
-                  </div>
-                  <Button size="sm" variant="outline" className="gap-1.5 text-xs h-8 shrink-0" onClick={() => setStep("waiting")}>
-                    <Smartphone className="w-3.5 h-3.5" /> I've submitted
+                <div className="flex gap-2.5">
+                  <Button variant="outline" className="flex-1 h-11" onClick={onClose}>Cancel</Button>
+                  <Button variant="gradient" className="flex-1 h-11 gap-2" onClick={() => setStep("submit")}>
+                    <ClipboardCheck className="w-4 h-4" /> I've Paid — Confirm
                   </Button>
                 </div>
               </motion.div>
             )}
 
-            {step === "waiting" && (
-              <motion.div key="waiting" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="text-center py-6">
-                <div className="relative w-20 h-20 mx-auto mb-5">
-                  <div className="absolute inset-0 rounded-full border-4 border-primary/20" />
-                  <div className="absolute inset-0 rounded-full border-4 border-t-primary animate-spin" />
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <Smartphone className="w-8 h-8 text-primary" />
+            {/* ── Step 2: Paste M-Pesa SMS ── */}
+            {step === "submit" && (
+              <motion.div key="submit" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-4">
+                <div className="text-center">
+                  <div className="w-14 h-14 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center mx-auto mb-3">
+                    <ClipboardCheck className="w-7 h-7 text-primary" />
                   </div>
+                  <h3 className="text-lg font-bold">Paste M-Pesa Confirmation</h3>
+                  <p className="text-xs text-muted-foreground mt-1">Copy the SMS M-Pesa sent you and paste it below</p>
                 </div>
-                <h3 className="text-lg font-bold mb-2">Check your phone</h3>
-                <p className="text-sm text-muted-foreground leading-relaxed">
-                  An M-Pesa prompt was sent to your phone.<br />
-                  Enter your PIN to pay <strong className="text-emerald-400">KES {request.paymentAmount?.toLocaleString()}</strong>.
-                </p>
-                <div className="mt-4 flex items-center justify-center gap-2 text-xs text-muted-foreground">
-                  <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  Confirming payment automatically…
+                {error && (
+                  <div className="flex items-center gap-2 text-destructive text-xs bg-destructive/10 border border-destructive/20 rounded-xl px-3 py-2.5">
+                    <AlertCircle className="w-4 h-4 shrink-0" />{error}
+                  </div>
+                )}
+                <textarea
+                  value={mpesaMsg}
+                  onChange={e => setMpesaMsg(e.target.value)}
+                  placeholder="Example: NTX123ABC confirmed. Ksh 3,000 sent to Calvin Osoro 0758891491 on 1/4/25 at 10:30 AM. M-PESA Balance is Ksh 1,500."
+                  className="w-full h-28 px-3 py-2.5 text-xs rounded-xl border border-border bg-secondary/40 focus:outline-none focus:ring-2 focus:ring-primary/40 resize-none placeholder:text-muted-foreground/60"
+                />
+                <div className="flex gap-2.5">
+                  <Button variant="outline" className="flex-1 h-11" onClick={() => setStep("instructions")}>Back</Button>
+                  <Button variant="gradient" className="flex-1 h-11 gap-2" onClick={submitMpesa}>
+                    <Send className="w-4 h-4" /> Submit
+                  </Button>
                 </div>
               </motion.div>
             )}
 
+            {/* ── Step 3: Submitting ── */}
+            {step === "submitting" && (
+              <motion.div key="submitting" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="text-center py-6">
+                <div className="relative w-16 h-16 mx-auto mb-4">
+                  <div className="absolute inset-0 rounded-full border-4 border-primary/20" />
+                  <div className="absolute inset-0 rounded-full border-4 border-t-primary animate-spin" />
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <Loader2 className="w-7 h-7 text-primary animate-spin" />
+                  </div>
+                </div>
+                <p className="text-sm text-muted-foreground">Submitting your confirmation…</p>
+              </motion.div>
+            )}
+
+            {/* ── Step 4: Pending (awaiting admin) ── */}
+            {step === "pending" && (
+              <motion.div key="pending" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="text-center py-6 space-y-4">
+                <div className="relative w-16 h-16 mx-auto">
+                  <div className="absolute inset-0 rounded-full border-4 border-amber-500/20 animate-pulse" />
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <Clock className="w-8 h-8 text-amber-400" />
+                  </div>
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-amber-400">Under Review</h3>
+                  <p className="text-sm text-muted-foreground mt-1 leading-relaxed">
+                    Your payment confirmation has been submitted.<br />
+                    Our team will verify and approve it shortly.
+                  </p>
+                </div>
+                <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
+                  <div className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                  Checking for approval…
+                </div>
+                <Button variant="outline" className="w-full h-10 text-sm" onClick={onClose}>Close (we'll notify you)</Button>
+              </motion.div>
+            )}
+
+            {/* ── Step 5: Success ── */}
             {step === "success" && (
               <motion.div key="success" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="text-center py-6">
                 <div className="w-20 h-20 rounded-full bg-emerald-500/10 border-2 border-emerald-500 flex items-center justify-center mx-auto mb-4">
                   <CheckCircle2 className="w-10 h-10 text-emerald-400" />
                 </div>
-                <h3 className="text-xl font-bold text-emerald-400 mb-2">Payment Confirmed!</h3>
-                <p className="text-sm text-muted-foreground">Your payment of <strong className="text-foreground">KES {request.paymentAmount?.toLocaleString()}</strong> has been received.</p>
+                <h3 className="text-xl font-bold text-emerald-400 mb-2">Payment Approved!</h3>
+                <p className="text-sm text-muted-foreground">Your payment of <strong className="text-foreground">KES {request.paymentAmount?.toLocaleString()}</strong> has been confirmed.</p>
                 <Button variant="gradient" className="mt-6 w-full h-11" onClick={onClose}>Done</Button>
-              </motion.div>
-            )}
-
-            {step === "failed" && (
-              <motion.div key="failed" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center py-6">
-                <div className="w-20 h-20 rounded-full bg-red-500/10 border-2 border-red-500/50 flex items-center justify-center mx-auto mb-4">
-                  <X className="w-10 h-10 text-red-400" />
-                </div>
-                <h3 className="text-xl font-bold text-red-400 mb-2">Payment Failed</h3>
-                <p className="text-sm text-muted-foreground">The payment was not completed. Please try again or contact support.</p>
-                <div className="flex gap-2.5 mt-6">
-                  <Button variant="outline" className="flex-1 h-11" onClick={onClose}>Close</Button>
-                  <Button variant="gradient" className="flex-1 h-11" onClick={() => setStep("phone")}>Try Again</Button>
-                </div>
               </motion.div>
             )}
           </AnimatePresence>
@@ -552,44 +553,23 @@ function downloadMembershipCertificate(user: any, requests: any[]) {
   }, "image/png");
 }
 
-// ── Admin Pay Request Modal ──────────────────────────────────
-type AdminPayStep = "ready" | "sending" | "pesapal" | "waiting" | "success" | "failed";
+// ── Admin Pay Request Modal (manual M-Pesa) ──────────────────
+type AdminPayStep = "ready" | "submit" | "submitting" | "pending" | "success" | "failed";
 
 function AdminPayRequestModal({ request, onClose, onPaid }: { request: any; onClose: () => void; onPaid: () => void }) {
-  const [step, setStep]   = useState<AdminPayStep>("ready");
-  const [iframeUrl, setIframeUrl] = useState("");
-  const [extId, setExtId] = useState("");
-  const [error, setError] = useState("");
+  const [step, setStep] = useState<AdminPayStep>(
+    request.paymentStatus === "pending" ? "pending" :
+    request.paymentStatus === "paid"    ? "success" : "ready"
+  );
+  const [mpesaMsg, setMpesaMsg] = useState("");
+  const [extId,    setExtId]    = useState<string>(request._id || "");
+  const [error,    setError]    = useState("");
+  const [copied,   setCopied]   = useState(false);
   const { toast } = useToast();
 
-  async function handlePay() {
-    setStep("sending"); setError("");
-    try {
-      const token = localStorage.getItem("nutterx_token");
-      const res   = await fetch(`/api/extensions/pay/${request._id}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({}),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || "Failed to initiate payment");
-
-      setExtId(data.extensionId);
-      if (data.redirectUrl) {
-        setIframeUrl(data.redirectUrl);
-        setStep("pesapal");
-      } else {
-        setStep("waiting");
-      }
-    } catch (e: any) {
-      setError(e.message);
-      setStep("failed");
-    }
-  }
-
+  // Poll when pending
   useEffect(() => {
-    if (step !== "waiting" && step !== "pesapal") return;
-    if (!extId) return;
+    if (step !== "pending" || !extId) return;
     const id = setInterval(async () => {
       try {
         const token = localStorage.getItem("nutterx_token");
@@ -598,20 +578,43 @@ function AdminPayRequestModal({ request, onClose, onPaid }: { request: any; onCl
         if (data.paymentStatus === "paid") {
           clearInterval(id);
           setStep("success");
-          toast({ title: "Payment confirmed!", description: "Your service timer has been updated." });
+          toast({ title: "Payment approved!", description: "Your service timer will be updated." });
           onPaid();
-        } else if (data.paymentStatus === "failed") {
-          clearInterval(id);
-          setStep("failed");
-          setError("Payment was not completed.");
         }
       } catch {}
-    }, 4000);
+    }, 8000);
     return () => clearInterval(id);
   }, [step, extId]);
 
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  const submitMpesa = async () => {
+    if (!mpesaMsg.trim()) { setError("Please paste your M-Pesa confirmation message."); return; }
+    setError(""); setStep("submitting");
+    try {
+      const token = localStorage.getItem("nutterx_token");
+      const res = await fetch(`/api/extensions/submit-mpesa/${extId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ mpesaMessage: mpesaMsg.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Submission failed");
+      setStep("pending");
+    } catch (err: any) {
+      setError(err.message || "Failed to submit. Try again.");
+      setStep("submit");
+    }
+  };
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+      onClick={e => { if (e.target === e.currentTarget && step !== "submitting" && step !== "pending") onClose(); }}>
       <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
         className="bg-card border border-amber-500/30 rounded-2xl p-6 w-full max-w-md shadow-2xl"
         onClick={e => e.stopPropagation()}>
@@ -620,75 +623,135 @@ function AdminPayRequestModal({ request, onClose, onPaid }: { request: any; onCl
           <h3 className="text-lg font-bold flex items-center gap-2">
             <Banknote className="w-5 h-5 text-amber-400" /> Payment Request
           </h3>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-secondary"><X className="w-4 h-4" /></button>
+          {step !== "pending" && step !== "submitting" && (
+            <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-secondary"><X className="w-4 h-4" /></button>
+          )}
         </div>
 
-        {step === "ready" && (
-          <>
-            <div className="bg-amber-500/8 border border-amber-500/25 rounded-xl p-4 mb-5 space-y-2">
-              <div className="flex items-center gap-2 text-amber-400 font-semibold text-sm">
-                <Bell className="w-4 h-4" /> Nutterx has requested a payment
+        <AnimatePresence mode="wait">
+          {/* ── Step 1: Details + M-Pesa instructions ── */}
+          {step === "ready" && (
+            <motion.div key="ready" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-4">
+              <div className="bg-amber-500/8 border border-amber-500/25 rounded-xl p-4 space-y-2">
+                <div className="flex items-center gap-2 text-amber-400 font-semibold text-sm">
+                  <Bell className="w-4 h-4" /> Nutterx has requested a payment
+                </div>
+                <div className="text-sm"><span className="text-muted-foreground">Service:</span> <span className="font-semibold">{request.serviceName}</span></div>
+                <div className="text-sm"><span className="text-muted-foreground">Purpose:</span> {request.purpose}</div>
+                <div className="text-sm"><span className="text-muted-foreground">Amount:</span> <span className="font-bold text-emerald-400">KES {(request.amount || 0).toLocaleString()}</span></div>
+                <div className="text-sm"><span className="text-muted-foreground">Days added:</span> <span className="font-bold text-primary">{request.adminRequestedDays} days</span></div>
+                {request.adminMessage && (
+                  <div className="mt-2 pt-2 border-t border-amber-500/20 text-xs text-muted-foreground italic">"{request.adminMessage}"</div>
+                )}
               </div>
-              <div className="text-sm"><span className="text-muted-foreground">Service:</span> <span className="font-semibold">{request.serviceName}</span></div>
-              <div className="text-sm"><span className="text-muted-foreground">Purpose:</span> {request.purpose}</div>
-              <div className="text-sm"><span className="text-muted-foreground">Amount:</span> <span className="font-bold text-emerald-400">KES {(request.amount || 0).toLocaleString()}</span></div>
-              <div className="text-sm"><span className="text-muted-foreground">Days added on payment:</span> <span className="font-bold text-primary">{request.adminRequestedDays} days</span></div>
-              {request.adminMessage && (
-                <div className="mt-2 pt-2 border-t border-amber-500/20 text-xs text-muted-foreground italic">"{request.adminMessage}"</div>
+
+              <div className="rounded-2xl border border-[#25D366]/30 bg-[#075E54]/20 overflow-hidden">
+                <div className="bg-[#075E54]/40 px-4 py-2.5 flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full bg-[#25D366]" />
+                  <span className="text-xs font-bold text-[#25D366] uppercase tracking-wider">Send M-Pesa To</span>
+                </div>
+                <div className="p-4 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-muted-foreground">Number</span>
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-white text-sm">0758891491</span>
+                      <button onClick={() => copyToClipboard("0758891491")} className="text-[#25D366]">
+                        {copied ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-muted-foreground">Name</span>
+                    <span className="font-semibold text-sm text-white">Calvin Osoro</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-muted-foreground">Amount</span>
+                    <span className="font-bold text-emerald-400 text-sm">KES {(request.amount || 0).toLocaleString()}</span>
+                  </div>
+                </div>
+              </div>
+
+              <p className="text-xs text-muted-foreground text-center">
+                Once sent, tap <strong className="text-foreground">I've Paid</strong> and paste your M-Pesa SMS to confirm.
+              </p>
+              <button onClick={() => setStep("submit")}
+                className="w-full h-11 flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white font-semibold transition-all">
+                <ClipboardCheck className="w-4 h-4" /> I've Paid — Submit Confirmation
+              </button>
+            </motion.div>
+          )}
+
+          {/* ── Step 2: Paste SMS ── */}
+          {step === "submit" && (
+            <motion.div key="submit" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-4">
+              <div className="text-center">
+                <div className="w-12 h-12 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center mx-auto mb-2">
+                  <ClipboardCheck className="w-6 h-6 text-primary" />
+                </div>
+                <h4 className="font-bold">Paste M-Pesa SMS</h4>
+                <p className="text-xs text-muted-foreground mt-0.5">Copy the confirmation SMS M-Pesa sent you</p>
+              </div>
+              {error && (
+                <div className="flex items-center gap-2 text-destructive text-xs bg-destructive/10 border border-destructive/20 rounded-xl px-3 py-2.5">
+                  <AlertCircle className="w-4 h-4 shrink-0" />{error}
+                </div>
               )}
-            </div>
-            <p className="text-xs text-muted-foreground mb-5">Once your payment is confirmed, <strong className="text-foreground">{request.adminRequestedDays} days</strong> will be added to your service timer automatically.</p>
-            <button onClick={handlePay}
-              className="w-full h-11 flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white font-semibold transition-all">
-              <Banknote className="w-4 h-4" /> Pay KES {(request.amount || 0).toLocaleString()} via M-Pesa
-            </button>
-          </>
-        )}
+              <textarea
+                value={mpesaMsg}
+                onChange={e => setMpesaMsg(e.target.value)}
+                placeholder="Paste your M-Pesa confirmation SMS here…"
+                className="w-full h-24 px-3 py-2.5 text-xs rounded-xl border border-border bg-secondary/40 focus:outline-none focus:ring-2 focus:ring-primary/40 resize-none"
+              />
+              <div className="flex gap-2">
+                <button onClick={() => setStep("ready")}
+                  className="flex-1 h-10 rounded-xl border border-border text-sm hover:bg-secondary transition-colors">Back</button>
+                <button onClick={submitMpesa}
+                  className="flex-1 h-10 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground text-sm font-semibold transition-colors flex items-center justify-center gap-2">
+                  <Send className="w-4 h-4" /> Submit
+                </button>
+              </div>
+            </motion.div>
+          )}
 
-        {step === "sending" && (
-          <div className="flex flex-col items-center py-8 gap-3">
-            <Loader2 className="w-8 h-8 animate-spin text-primary" />
-            <p className="text-sm text-muted-foreground">Setting up payment...</p>
-          </div>
-        )}
+          {/* ── Submitting ── */}
+          {step === "submitting" && (
+            <motion.div key="submitting" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col items-center py-8 gap-3">
+              <Loader2 className="w-8 h-8 animate-spin text-primary" />
+              <p className="text-sm text-muted-foreground">Submitting…</p>
+            </motion.div>
+          )}
 
-        {step === "pesapal" && iframeUrl && (
-          <div className="space-y-3">
-            <p className="text-xs text-muted-foreground text-center">Complete your payment in the window below, then wait for confirmation.</p>
-            <iframe src={iframeUrl} className="w-full rounded-xl border border-border" style={{ height: 420 }} title="Pesapal Payment" />
-          </div>
-        )}
+          {/* ── Pending ── */}
+          {step === "pending" && (
+            <motion.div key="pending" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col items-center py-8 gap-3 text-center">
+              <Clock className="w-10 h-10 text-amber-400 animate-pulse" />
+              <p className="font-bold text-amber-400">Under Review</p>
+              <p className="text-sm text-muted-foreground">Your confirmation is being reviewed. We'll approve shortly.</p>
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <div className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" /> Checking for approval…
+              </div>
+              <button onClick={onClose} className="mt-2 px-5 py-2 rounded-xl border border-border text-sm hover:bg-secondary transition-colors">
+                Close (we'll notify you)
+              </button>
+            </motion.div>
+          )}
 
-        {(step === "pesapal" || step === "waiting") && (
-          <div className="flex items-center gap-2 mt-4 p-3 rounded-xl bg-secondary/50 text-xs text-muted-foreground">
-            <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" /> Waiting for payment confirmation…
-          </div>
-        )}
-
-        {step === "success" && (
-          <div className="flex flex-col items-center py-8 gap-3">
-            <CheckCircle2 className="w-12 h-12 text-emerald-400" />
-            <p className="text-lg font-bold text-emerald-400">Payment confirmed!</p>
-            <p className="text-sm text-muted-foreground text-center">Your service timer has been updated with the new days.</p>
-            <button onClick={onClose} className="mt-2 px-6 py-2 rounded-xl bg-emerald-500 text-white font-semibold text-sm hover:bg-emerald-600 transition-colors">Done</button>
-          </div>
-        )}
-
-        {step === "failed" && (
-          <div className="flex flex-col items-center py-8 gap-3">
-            <AlertCircle className="w-12 h-12 text-red-400" />
-            <p className="text-base font-bold text-red-400">Payment failed</p>
-            {error && <p className="text-xs text-muted-foreground text-center">{error}</p>}
-            <button onClick={() => setStep("ready")} className="mt-2 px-6 py-2 rounded-xl bg-secondary border border-border text-sm font-semibold hover:bg-secondary/80 transition-colors">Try again</button>
-          </div>
-        )}
+          {step === "success" && (
+            <motion.div key="success" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col items-center py-8 gap-3">
+              <CheckCircle2 className="w-12 h-12 text-emerald-400" />
+              <p className="text-lg font-bold text-emerald-400">Payment approved!</p>
+              <p className="text-sm text-muted-foreground text-center">Your service timer has been updated with the new days.</p>
+              <button onClick={onClose} className="mt-2 px-6 py-2 rounded-xl bg-emerald-500 text-white font-semibold text-sm hover:bg-emerald-600 transition-colors">Done</button>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </motion.div>
     </div>
   );
 }
 
-// ── Extend Service Modal ─────────────────────────────────────
-type ExtStep = "form" | "sending" | "pesapal" | "waiting" | "success" | "failed";
+// ── Extend Service Modal (manual M-Pesa) ─────────────────────
+type ExtStep = "form" | "creating" | "instructions" | "submit" | "submitting" | "pending" | "success";
 
 function ExtendModal({ liveRequests, onClose }: { liveRequests: any[]; onClose: () => void }) {
   const [step, setStep]             = useState<ExtStep>("form");
@@ -697,16 +760,17 @@ function ExtendModal({ liveRequests, onClose }: { liveRequests: any[]; onClose: 
   const [amount, setAmount]         = useState("");
   const [error, setError]           = useState("");
   const [extensionId, setExtId]     = useState("");
-  const [redirectUrl, setRedirUrl]  = useState("");
+  const [mpesaMsg, setMpesaMsg]     = useState("");
+  const [copied, setCopied]         = useState(false);
   const { toast } = useToast();
 
   const selectedReq = liveRequests.find(r => r._id === selectedId);
 
-  const handlePay = async () => {
+  const handleCreate = async () => {
     if (!selectedId || !purpose.trim() || !amount) { setError("Please fill in all fields."); return; }
     const amt = Number(amount);
     if (isNaN(amt) || amt < 1) { setError("Enter a valid amount (min KES 1)."); return; }
-    setError(""); setStep("sending");
+    setError(""); setStep("creating");
     try {
       const token = localStorage.getItem("nutterx_token");
       const res   = await fetch("/api/extensions/initiate", {
@@ -715,87 +779,87 @@ function ExtendModal({ liveRequests, onClose }: { liveRequests: any[]; onClose: 
         body: JSON.stringify({ serviceRequestId: selectedId, purpose: purpose.trim(), amount: amt }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.message || "Payment initiation failed");
+      if (!res.ok) throw new Error(data.message || "Request failed");
       setExtId(data.extensionId);
-      setRedirUrl(data.redirectUrl || "");
-      setStep("pesapal");
+      setStep("instructions");
     } catch (err: any) {
       setError(err.message); setStep("form");
     }
   };
 
+  // Poll when pending
   useEffect(() => {
-    if (!extensionId || step === "form" || step === "sending" || step === "success" || step === "failed") return;
-    let attempts = 0;
+    if (step !== "pending" || !extensionId) return;
     const interval = setInterval(async () => {
-      attempts++;
       try {
         const token = localStorage.getItem("nutterx_token");
         const res   = await fetch(`/api/extensions/status/${extensionId}`, { headers: { Authorization: `Bearer ${token}` } });
         const data  = await res.json();
         if (data.paymentStatus === "paid") {
           clearInterval(interval); setStep("success");
-          toast({ title: "Payment received!", description: "Admin will confirm and update your deadline shortly." });
-        } else if (data.paymentStatus === "failed" || attempts >= 72) {
-          clearInterval(interval); setStep("failed");
+          toast({ title: "Payment approved!", description: "Admin will update your deadline shortly." });
         }
       } catch { /* keep polling */ }
-    }, 5000);
+    }, 8000);
     return () => clearInterval(interval);
   }, [extensionId, step]);
 
-  const isPesapal = step === "pesapal";
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
+  };
+
+  const submitMpesa = async () => {
+    if (!mpesaMsg.trim()) { setError("Please paste your M-Pesa confirmation message."); return; }
+    setError(""); setStep("submitting");
+    try {
+      const token = localStorage.getItem("nutterx_token");
+      const res = await fetch(`/api/extensions/submit-mpesa/${extensionId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ mpesaMessage: mpesaMsg.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Submission failed");
+      setStep("pending");
+    } catch (err: any) {
+      setError(err.message || "Failed to submit. Try again.");
+      setStep("submit");
+    }
+  };
+
+  const canClose = step !== "creating" && step !== "submitting" && step !== "pending";
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
       className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-sm"
-      onClick={e => { if (e.target === e.currentTarget && step !== "sending" && step !== "waiting") onClose(); }}>
+      onClick={e => { if (e.target === e.currentTarget && canClose) onClose(); }}>
       <motion.div
         initial={{ y: 40, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 40, opacity: 0 }}
         transition={{ type: "spring", stiffness: 300, damping: 30 }}
-        className={cn("bg-card border border-border rounded-t-3xl sm:rounded-3xl w-full shadow-2xl", isPesapal ? "sm:max-w-lg" : "sm:max-w-md")}
+        className="bg-card border border-border rounded-t-3xl sm:rounded-3xl w-full sm:max-w-md shadow-2xl"
       >
         <div className="flex justify-center pt-3 pb-1 sm:hidden"><div className="w-10 h-1 rounded-full bg-border" /></div>
-        <div className={cn("p-6", isPesapal && "p-4")}>
-
-          {/* Header */}
-          {isPesapal ? (
-            <div className="flex items-center justify-between mb-3">
-              <div>
-                <h3 className="font-bold text-base">Complete M-Pesa Payment</h3>
-                <p className="text-xs text-muted-foreground mt-0.5">Enter your number in the form below &amp; tap <strong>Proceed</strong></p>
+        <div className="p-6">
+          <div className="flex items-center justify-between mb-5">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center">
+                <CalendarClock className="w-5 h-5 text-indigo-400" />
               </div>
-              <div className="flex items-center gap-2">
-                <div className="text-xs font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-2.5 py-1">
-                  KES {Number(amount).toLocaleString()}
-                </div>
-                <button onClick={onClose} className="w-8 h-8 rounded-full bg-secondary/60 flex items-center justify-center hover:bg-secondary transition-colors">
-                  <X className="w-4 h-4" />
-                </button>
+              <div>
+                <h3 className="font-bold text-base">Pay in Advance</h3>
+                <p className="text-xs text-muted-foreground">Extend or renew a live service</p>
               </div>
             </div>
-          ) : (
-            <div className="flex items-center justify-between mb-5">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center">
-                  <CalendarClock className="w-5 h-5 text-indigo-400" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-base">Pay in Advance</h3>
-                  <p className="text-xs text-muted-foreground">Extend or renew a live service</p>
-                </div>
-              </div>
+            {canClose && (
               <button onClick={onClose} className="w-8 h-8 rounded-full bg-secondary/60 flex items-center justify-center hover:bg-secondary transition-colors">
                 <X className="w-4 h-4" />
               </button>
-            </div>
-          )}
+            )}
+          </div>
 
           <AnimatePresence mode="wait">
-            {/* Form step */}
             {step === "form" && (
               <motion.div key="form" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-4">
-                {/* Service picker */}
                 <div>
                   <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground block mb-2">Live Service</label>
                   <div className="space-y-2">
@@ -811,118 +875,152 @@ function ExtendModal({ liveRequests, onClose }: { liveRequests: any[]; onClose: 
                         </div>
                         <div className="min-w-0 flex-1">
                           <div className="font-semibold text-sm truncate">{r.serviceName}</div>
-                          {r.subscriptionEndsAt && (
-                            <div className="text-xs text-muted-foreground">Deadline: {formatDate(r.subscriptionEndsAt)}</div>
-                          )}
+                          {r.subscriptionEndsAt && <div className="text-xs text-muted-foreground">Deadline: {formatDate(r.subscriptionEndsAt)}</div>}
                         </div>
                         <span className="text-xs font-semibold text-blue-400 bg-blue-500/10 border border-blue-500/20 px-2 py-0.5 rounded-full shrink-0">Live</span>
                       </button>
                     ))}
                   </div>
                 </div>
-
-                {/* Purpose */}
                 <div>
-                  <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground block mb-2">What is this payment for? *</label>
-                  <textarea
-                    value={purpose}
-                    onChange={e => setPurpose(e.target.value)}
-                    placeholder="e.g. Extend deadline by 30 days, Continue service for next month, Additional feature development..."
-                    className="w-full rounded-xl bg-secondary/50 border border-border p-3 text-sm min-h-[80px] focus:outline-none focus:border-primary/50 resize-none transition-colors"
-                  />
+                  <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground block mb-2">Purpose *</label>
+                  <textarea value={purpose} onChange={e => setPurpose(e.target.value)}
+                    placeholder="e.g. Extend deadline by 30 days, continue service for next month..."
+                    className="w-full rounded-xl bg-secondary/50 border border-border p-3 text-sm min-h-[72px] focus:outline-none focus:border-primary/50 resize-none transition-colors" />
                 </div>
-
-                {/* Amount */}
                 <div>
                   <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground block mb-2">Amount (KES) *</label>
                   <div className="relative">
                     <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground font-semibold text-sm">KES</span>
-                    <input
-                      type="number" min="1" value={amount} onChange={e => setAmount(e.target.value)}
+                    <input type="number" min="1" value={amount} onChange={e => setAmount(e.target.value)}
                       placeholder="0"
-                      className="w-full h-11 rounded-xl bg-secondary/50 border border-border pl-14 pr-4 text-sm font-bold focus:outline-none focus:border-primary/50 transition-colors"
-                    />
+                      className="w-full h-11 rounded-xl bg-secondary/50 border border-border pl-14 pr-4 text-sm font-bold focus:outline-none focus:border-primary/50 transition-colors" />
                   </div>
                 </div>
-
                 {error && (
                   <div className="flex items-center gap-2 text-destructive text-xs bg-destructive/10 border border-destructive/20 rounded-xl px-3 py-2.5">
                     <AlertCircle className="w-4 h-4 shrink-0" />{error}
                   </div>
                 )}
-
-                {/* Info note */}
                 <div className="p-3 bg-indigo-500/5 border border-indigo-500/20 rounded-xl text-xs text-indigo-300/80 leading-relaxed flex gap-2">
                   <ArrowUpRight className="w-4 h-4 shrink-0 mt-0.5 text-indigo-400" />
-                  <span>After payment, the admin will review your request, confirm the payment, and update your service deadline accordingly.</span>
+                  <span>You'll pay via M-Pesa and paste the confirmation SMS. Admin will review and update your deadline.</span>
                 </div>
-
                 <div className="flex gap-2.5">
                   <Button variant="outline" className="flex-1 h-11" onClick={onClose}>Cancel</Button>
-                  <Button variant="gradient" className="flex-1 h-11 gap-2" onClick={handlePay}>
-                    <Lock className="w-4 h-4" /> Pay KES {amount ? Number(amount).toLocaleString() : "—"}
+                  <Button variant="gradient" className="flex-1 h-11 gap-2" onClick={handleCreate}>
+                    <ClipboardCheck className="w-4 h-4" /> Continue
                   </Button>
                 </div>
               </motion.div>
             )}
 
-            {step === "sending" && (
-              <motion.div key="sending" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="text-center py-8">
-                <div className="relative w-20 h-20 mx-auto mb-5">
-                  <div className="absolute inset-0 rounded-full border-4 border-primary/20" />
-                  <div className="absolute inset-0 rounded-full border-4 border-t-primary animate-spin" />
-                  <div className="absolute inset-0 flex items-center justify-center"><Loader2 className="w-8 h-8 text-primary animate-spin" /></div>
-                </div>
-                <h3 className="text-lg font-bold mb-2">Preparing payment…</h3>
-                <p className="text-sm text-muted-foreground">Opening secure M-Pesa payment form.</p>
+            {step === "creating" && (
+              <motion.div key="creating" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="text-center py-8">
+                <Loader2 className="w-10 h-10 text-primary animate-spin mx-auto mb-3" />
+                <p className="text-sm text-muted-foreground">Setting up your request…</p>
               </motion.div>
             )}
 
-            {step === "pesapal" && redirectUrl && (
-              <motion.div key="pesapal" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                <div className="rounded-xl overflow-hidden border border-border bg-white" style={{ height: 480 }}>
-                  <iframe src={redirectUrl} width="100%" height="100%" style={{ border: "none", display: "block" }} title="M-Pesa Payment" />
+            {step === "instructions" && (
+              <motion.div key="instructions" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-4">
+                <div className="text-center">
+                  <div className="w-12 h-12 rounded-2xl bg-[#25D366]/10 border border-[#25D366]/30 flex items-center justify-center mx-auto mb-2">
+                    <Smartphone className="w-6 h-6 text-[#25D366]" />
+                  </div>
+                  <h4 className="font-bold">Send M-Pesa Payment</h4>
+                  <p className="text-xs text-muted-foreground mt-0.5">{selectedReq?.serviceName} — KES {Number(amount).toLocaleString()}</p>
                 </div>
-                <p className="text-xs text-muted-foreground text-center mt-3 flex items-center justify-center gap-1.5">
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin-slow" /> Waiting for payment confirmation…
-                </p>
+                <div className="rounded-2xl border border-[#25D366]/30 bg-[#075E54]/20 overflow-hidden">
+                  <div className="bg-[#075E54]/40 px-4 py-2.5 flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full bg-[#25D366]" />
+                    <span className="text-xs font-bold text-[#25D366] uppercase tracking-wider">M-Pesa Payment Details</span>
+                  </div>
+                  <div className="p-4 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-muted-foreground">Number</span>
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-white text-sm">0758891491</span>
+                        <button onClick={() => copyToClipboard("0758891491")} className="text-[#25D366]">
+                          {copied ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                        </button>
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-muted-foreground">Name</span>
+                      <span className="font-semibold text-sm text-white">Calvin Osoro</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-muted-foreground">Amount</span>
+                      <span className="font-bold text-emerald-400">KES {Number(amount).toLocaleString()}</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex gap-2.5">
+                  <Button variant="outline" className="flex-1 h-11" onClick={() => setStep("form")}>Back</Button>
+                  <Button variant="gradient" className="flex-1 h-11 gap-2" onClick={() => setStep("submit")}>
+                    <ClipboardCheck className="w-4 h-4" /> I've Paid
+                  </Button>
+                </div>
               </motion.div>
             )}
 
-            {step === "waiting" && (
-              <motion.div key="waiting" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="text-center py-8">
-                <div className="relative w-20 h-20 mx-auto mb-5">
-                  <div className="absolute inset-0 rounded-full border-4 border-primary/20" />
-                  <div className="absolute inset-0 rounded-full border-4 border-t-primary animate-spin" />
+            {step === "submit" && (
+              <motion.div key="submit" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-4">
+                <div className="text-center">
+                  <div className="w-12 h-12 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center mx-auto mb-2">
+                    <ClipboardCheck className="w-6 h-6 text-primary" />
+                  </div>
+                  <h4 className="font-bold">Paste M-Pesa SMS</h4>
+                  <p className="text-xs text-muted-foreground mt-0.5">Copy the confirmation SMS M-Pesa sent you</p>
                 </div>
-                <h3 className="text-lg font-bold mb-2">Confirming payment…</h3>
-                <p className="text-sm text-muted-foreground">Please wait while we verify your M-Pesa transaction.</p>
+                {error && (
+                  <div className="flex items-center gap-2 text-destructive text-xs bg-destructive/10 border border-destructive/20 rounded-xl px-3 py-2.5">
+                    <AlertCircle className="w-4 h-4 shrink-0" />{error}
+                  </div>
+                )}
+                <textarea value={mpesaMsg} onChange={e => setMpesaMsg(e.target.value)}
+                  placeholder="Paste your M-Pesa confirmation SMS here…"
+                  className="w-full h-24 px-3 py-2.5 text-xs rounded-xl border border-border bg-secondary/40 focus:outline-none focus:ring-2 focus:ring-primary/40 resize-none" />
+                <div className="flex gap-2.5">
+                  <Button variant="outline" className="flex-1 h-11" onClick={() => setStep("instructions")}>Back</Button>
+                  <Button variant="gradient" className="flex-1 h-11 gap-2" onClick={submitMpesa}>
+                    <Send className="w-4 h-4" /> Submit
+                  </Button>
+                </div>
+              </motion.div>
+            )}
+
+            {step === "submitting" && (
+              <motion.div key="submitting" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center py-8">
+                <Loader2 className="w-10 h-10 text-primary animate-spin mx-auto mb-3" />
+                <p className="text-sm text-muted-foreground">Submitting your confirmation…</p>
+              </motion.div>
+            )}
+
+            {step === "pending" && (
+              <motion.div key="pending" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center py-8 space-y-4">
+                <Clock className="w-12 h-12 text-amber-400 mx-auto animate-pulse" />
+                <div>
+                  <h4 className="font-bold text-amber-400 text-lg">Under Review</h4>
+                  <p className="text-sm text-muted-foreground mt-1">Your confirmation is being reviewed.<br />Admin will approve and update your deadline.</p>
+                </div>
+                <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
+                  <div className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" /> Checking for approval…
+                </div>
+                <Button variant="outline" className="h-10 px-6" onClick={onClose}>Close (we'll notify you)</Button>
               </motion.div>
             )}
 
             {step === "success" && (
-              <motion.div key="success" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }} className="text-center py-8">
+              <motion.div key="success" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="text-center py-8">
                 <div className="w-20 h-20 rounded-full bg-emerald-500/10 border-2 border-emerald-500/30 flex items-center justify-center mx-auto mb-5">
                   <CheckCircle2 className="w-10 h-10 text-emerald-400" />
                 </div>
-                <h3 className="text-xl font-bold mb-2 text-emerald-400">Payment Received!</h3>
+                <h3 className="text-xl font-bold mb-2 text-emerald-400">Payment Approved!</h3>
                 <p className="text-sm text-muted-foreground mb-1">KES {Number(amount).toLocaleString()} for <strong>{selectedReq?.serviceName}</strong></p>
-                <p className="text-xs text-muted-foreground mb-6">The admin has been notified and will update your deadline shortly.</p>
+                <p className="text-xs text-muted-foreground mb-6">Your deadline has been updated.</p>
                 <Button variant="gradient" className="h-11 px-8" onClick={onClose}>Done</Button>
-              </motion.div>
-            )}
-
-            {step === "failed" && (
-              <motion.div key="failed" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="text-center py-8">
-                <div className="w-20 h-20 rounded-full bg-red-500/10 border-2 border-red-500/30 flex items-center justify-center mx-auto mb-5">
-                  <AlertCircle className="w-10 h-10 text-red-400" />
-                </div>
-                <h3 className="text-xl font-bold mb-2 text-red-400">Payment Failed</h3>
-                <p className="text-sm text-muted-foreground mb-6">The payment could not be confirmed. Please try again.</p>
-                <div className="flex gap-2 justify-center">
-                  <Button variant="outline" className="h-10" onClick={onClose}>Close</Button>
-                  <Button variant="gradient" className="h-10" onClick={() => { setStep("form"); setExtId(""); setRedirUrl(""); }}>Try Again</Button>
-                </div>
               </motion.div>
             )}
           </AnimatePresence>

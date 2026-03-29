@@ -191,7 +191,7 @@ router.get("/payments", authenticate, requireAdmin, async (_req: AuthRequest, re
       paymentAmount: r.paymentAmount ? Number(r.paymentAmount) : null,
       paymentCurrency: r.paymentCurrency || "KES",
       paymentStatus: r.paymentStatus, paymentRequired: r.paymentRequired,
-      pesapalOrderTrackingId: r.pesapalOrderTrackingId, createdAt: r.createdAt,
+      mpesaMessage: r.mpesaMessage ?? null, createdAt: r.createdAt,
       type: "service", purpose: null,
     }));
     const extStatements = extsWithUsers.map(e => ({
@@ -199,7 +199,7 @@ router.get("/payments", authenticate, requireAdmin, async (_req: AuthRequest, re
       paymentAmount: e.amount ? Number(e.amount) : null,
       paymentCurrency: e.currency || "KES",
       paymentStatus: e.paymentStatus, paymentRequired: true,
-      pesapalOrderTrackingId: e.pesapalOrderTrackingId, createdAt: e.createdAt,
+      mpesaMessage: e.mpesaMessage ?? null, createdAt: e.createdAt,
       type: "extension", purpose: e.purpose,
     }));
 

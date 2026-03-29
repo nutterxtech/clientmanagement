@@ -11,7 +11,8 @@ import {
   AlertCircle, ImageDown, UserPlus, Calendar, CheckCircle2, X,
   Settings, Key, Save, Loader2, Trash2, Plus, Edit2, Package,
   CreditCard, TrendingUp, DollarSign, Clock, Star, MessagesSquare,
-  Image, UserCheck, UserX, CalendarDays, CalendarClock, RefreshCw, Banknote
+  Image, UserCheck, UserX, CalendarDays, CalendarClock, RefreshCw, Banknote,
+  ThumbsUp, ThumbsDown, MessageSquare
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
@@ -617,6 +618,223 @@ function RequestPaymentModal({ request, onClose, onSent }: { request: any; onClo
   );
 }
 
+// ── Extension Payment Approve Modal ───────────────────────────
+function ExtPayApproveModal({ ext, onClose, onDone }: { ext: any; onClose: () => void; onDone: () => void }) {
+  const [newDeadline, setNewDeadline] = useState("");
+  const [adminNotes, setAdminNotes]   = useState("");
+  const [loading, setLoading]         = useState(false);
+  const [error, setError]             = useState("");
+  const { toast } = useToast();
+
+  const handleApprove = async () => {
+    if (!newDeadline) { setError("Please set a new deadline for the service."); return; }
+    setLoading(true); setError("");
+    try {
+      const token = localStorage.getItem("nutterx_token");
+      const res = await fetch(`/api/extensions/approve/${ext._id}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ newDeadline, adminNotes: adminNotes.trim() || undefined }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Failed to approve");
+      toast({ title: "Extension approved!", description: `${ext.user?.name || "Client"}'s payment confirmed and deadline updated.` });
+      onDone();
+    } catch (err: any) { setError(err.message); }
+    finally { setLoading(false); }
+  };
+
+  const handleReject = async () => {
+    if (!confirm("Reject this extension payment? Status will revert to unpaid.")) return;
+    setLoading(true); setError("");
+    try {
+      const token = localStorage.getItem("nutterx_token");
+      const res = await fetch(`/api/extensions/reject/${ext._id}`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Failed to reject");
+      toast({ title: "Extension payment rejected" });
+      onDone();
+    } catch (err: any) { setError(err.message); }
+    finally { setLoading(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" onClick={onClose}>
+      <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
+        className="bg-card border border-indigo-500/30 rounded-2xl p-6 w-full max-w-md shadow-2xl"
+        onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-5">
+          <h3 className="text-base font-bold flex items-center gap-2">
+            <CalendarClock className="w-5 h-5 text-indigo-400" /> Review Extension Payment
+          </h3>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-secondary"><X className="w-4 h-4" /></button>
+        </div>
+        <div className="space-y-4">
+          <div className="p-4 rounded-xl bg-secondary/40 border border-border space-y-1.5">
+            <div className="text-sm font-semibold">{ext.user?.name || "—"} <span className="text-muted-foreground font-normal text-xs">· {ext.user?.email}</span></div>
+            <div className="text-sm">{ext.serviceName}</div>
+            <div className="text-xs text-muted-foreground">{ext.purpose}</div>
+            <div className="text-base font-bold text-emerald-400">KES {(ext.amount || 0).toLocaleString()}</div>
+            <div className="text-xs text-indigo-400">{ext.adminRequestedDays ? `+${ext.adminRequestedDays} days on approval` : "User-initiated extension"}</div>
+          </div>
+          {ext.mpesaMessage && (
+            <div>
+              <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                <MessageSquare className="w-3.5 h-3.5" /> M-Pesa Confirmation SMS
+              </div>
+              <div className="p-3 rounded-xl bg-[#075E54]/15 border border-[#25D366]/30 text-xs text-white/90 leading-relaxed whitespace-pre-wrap font-mono">
+                {ext.mpesaMessage}
+              </div>
+            </div>
+          )}
+          <div>
+            <label className="text-xs text-muted-foreground font-semibold uppercase tracking-wider mb-1.5 block">
+              New Service Deadline <span className="text-red-400">*</span>
+            </label>
+            <input type="date" value={newDeadline} onChange={e => setNewDeadline(e.target.value)}
+              className="w-full h-10 px-3 rounded-xl border border-border bg-secondary/40 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40" />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground font-semibold uppercase tracking-wider mb-1.5 block">Admin Note (optional)</label>
+            <input type="text" value={adminNotes} onChange={e => setAdminNotes(e.target.value)}
+              placeholder="e.g. Verified via M-Pesa code XYZ"
+              className="w-full h-10 px-3 rounded-xl border border-border bg-secondary/40 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40" />
+          </div>
+          {error && (
+            <div className="text-xs text-destructive bg-destructive/10 border border-destructive/20 rounded-xl px-3 py-2 flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0" />{error}
+            </div>
+          )}
+          <div className="flex gap-2.5 pt-1">
+            <button onClick={handleReject} disabled={loading}
+              className="flex-1 h-11 rounded-xl bg-red-500/10 border border-red-500/30 hover:bg-red-500/20 disabled:opacity-50 text-red-400 font-semibold text-sm transition-colors flex items-center justify-center gap-2">
+              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ThumbsDown className="w-4 h-4" />} Reject
+            </button>
+            <button onClick={handleApprove} disabled={loading}
+              className="flex-1 h-11 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-semibold text-sm transition-colors flex items-center justify-center gap-2">
+              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ThumbsUp className="w-4 h-4" />} Approve
+            </button>
+          </div>
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
+// ── Service Payment Approve Modal ─────────────────────────────
+function ServicePayApproveModal({ statement, onClose, onDone }: { statement: any; onClose: () => void; onDone: () => void }) {
+  const [newDeadline, setNewDeadline] = useState("");
+  const [loading, setLoading]         = useState(false);
+  const [error, setError]             = useState("");
+  const { toast } = useToast();
+
+  const handleApprove = async () => {
+    setLoading(true); setError("");
+    try {
+      const token = localStorage.getItem("nutterx_token");
+      const res = await fetch(`/api/payment/approve/${statement._id}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ newDeadline: newDeadline || undefined }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Failed to approve");
+      toast({ title: "Payment approved!", description: `${(statement.user as any)?.name || "Client"}'s payment has been confirmed.` });
+      onDone();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleReject = async () => {
+    if (!confirm("Reject this payment? The status will revert to unpaid.")) return;
+    setLoading(true); setError("");
+    try {
+      const token = localStorage.getItem("nutterx_token");
+      const res = await fetch(`/api/payment/reject/${statement._id}`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Failed to reject");
+      toast({ title: "Payment rejected", description: "Status reverted to unpaid." });
+      onDone();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" onClick={onClose}>
+      <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
+        className="bg-card border border-border rounded-2xl p-6 w-full max-w-md shadow-2xl"
+        onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-5">
+          <h3 className="text-base font-bold flex items-center gap-2">
+            <Banknote className="w-5 h-5 text-amber-400" /> Review Payment
+          </h3>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-secondary"><X className="w-4 h-4" /></button>
+        </div>
+
+        <div className="space-y-4">
+          <div className="p-4 rounded-xl bg-secondary/40 border border-border space-y-1.5">
+            <div className="text-sm font-semibold">{(statement.user as any)?.name || "Client"} <span className="text-muted-foreground font-normal text-xs">· {(statement.user as any)?.email}</span></div>
+            <div className="text-sm">{statement.serviceName}</div>
+            <div className="text-base font-bold text-emerald-400">{statement.paymentCurrency} {(statement.paymentAmount || 0).toLocaleString()}</div>
+          </div>
+
+          {/* M-Pesa message */}
+          <div>
+            <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+              <MessageSquare className="w-3.5 h-3.5" /> M-Pesa Confirmation SMS
+            </div>
+            <div className="p-3 rounded-xl bg-[#075E54]/15 border border-[#25D366]/30 text-sm text-white/90 leading-relaxed whitespace-pre-wrap font-mono text-xs">
+              {statement.mpesaMessage || "No message submitted"}
+            </div>
+          </div>
+
+          {/* Optional: update deadline on approve */}
+          <div>
+            <label className="text-xs text-muted-foreground font-semibold uppercase tracking-wider mb-1.5 block">
+              Update Service Deadline (optional)
+            </label>
+            <input
+              type="date"
+              value={newDeadline}
+              onChange={e => setNewDeadline(e.target.value)}
+              className="w-full h-10 px-3 rounded-xl border border-border bg-secondary/40 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+            />
+          </div>
+
+          {error && (
+            <div className="text-xs text-destructive bg-destructive/10 border border-destructive/20 rounded-xl px-3 py-2 flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0" />{error}
+            </div>
+          )}
+
+          <div className="flex gap-2.5 pt-1">
+            <button onClick={handleReject} disabled={loading}
+              className="flex-1 h-11 rounded-xl bg-red-500/10 border border-red-500/30 hover:bg-red-500/20 disabled:opacity-50 text-red-400 font-semibold text-sm transition-colors flex items-center justify-center gap-2">
+              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ThumbsDown className="w-4 h-4" />} Reject
+            </button>
+            <button onClick={handleApprove} disabled={loading}
+              className="flex-1 h-11 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-semibold text-sm transition-colors flex items-center justify-center gap-2">
+              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ThumbsUp className="w-4 h-4" />} Approve
+            </button>
+          </div>
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
 // ── Payments Panel ────────────────────────────────────────────
 function PaymentsPanel() {
   const [data, setData]           = useState<{ statements: any[]; totalRevenue: number; pendingAmount: number; extensionRevenue: number; extensionCount: number } | null>(null);
@@ -624,8 +842,10 @@ function PaymentsPanel() {
   const [extensions, setExts]     = useState<any[]>([]);
   const [extsLoading, setExtsLoading] = useState(true);
   const [confirmingExt, setConfirmingExt] = useState<any>(null);
+  const [approvingExt, setApprovingExt]   = useState<any>(null);
   const [markingPaidId, setMarkingPaidId] = useState<string | null>(null);
   const [deletingExtId, setDeletingExtId] = useState<string | null>(null);
+  const [approvingStatement, setApprovingStatement] = useState<any>(null);
   const queryClient = useQueryClient();
 
   const loadAll = () => {
@@ -696,7 +916,7 @@ function PaymentsPanel() {
           <table className="w-full min-w-[600px] text-sm">
             <thead>
               <tr className="bg-secondary/40 border-b border-border">
-                {["Client", "Service / Purpose", "Type", "Amount", "Status", "Date"].map(h => (
+                {["Client", "Service / Purpose", "Type", "Amount", "Status", "Date", "Action"].map(h => (
                   <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">{h}</th>
                 ))}
               </tr>
@@ -727,6 +947,15 @@ function PaymentsPanel() {
                     </span>
                   </td>
                   <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{formatDate(s.createdAt)}</td>
+                  <td className="px-4 py-3">
+                    {s.paymentStatus === "pending" && s.mpesaMessage && s.type === "service" && (
+                      <button
+                        onClick={() => setApprovingStatement(s)}
+                        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-amber-500/15 border border-amber-500/30 hover:bg-amber-500/25 text-amber-400 text-xs font-semibold whitespace-nowrap transition-colors">
+                        <Banknote className="w-3.5 h-3.5" /> Review
+                      </button>
+                    )}
+                  </td>
                 </motion.tr>
               ))}
             </tbody>
@@ -780,6 +1009,15 @@ function PaymentsPanel() {
                         <div className="text-xs text-muted-foreground font-semibold uppercase tracking-wider mb-1">Purpose / Reason</div>
                         <div className="text-sm leading-relaxed">{ext.purpose}</div>
                       </div>
+                      {/* M-Pesa message preview for pending */}
+                      {ext.paymentStatus === "pending" && ext.mpesaMessage && (
+                        <div className="p-2.5 bg-[#075E54]/15 border border-[#25D366]/25 rounded-xl">
+                          <div className="text-xs text-[#25D366] font-semibold mb-1 flex items-center gap-1">
+                            <MessageSquare className="w-3 h-3" /> M-Pesa SMS Received
+                          </div>
+                          <div className="text-xs text-white/80 font-mono leading-relaxed line-clamp-2">{ext.mpesaMessage}</div>
+                        </div>
+                      )}
                       {ext.adminNotes && (
                         <div className="text-xs text-primary/80 bg-primary/5 border border-primary/10 rounded-lg px-2.5 py-1.5">
                           Admin note: {ext.adminNotes}
@@ -800,8 +1038,18 @@ function PaymentsPanel() {
                       </span>
                       <div className="text-xs text-muted-foreground whitespace-nowrap">{formatDate(ext.createdAt)}</div>
 
-                      {/* Admin manually marks as paid if system didn't */}
-                      {!isPaid && (
+                      {/* Review pending M-Pesa submission */}
+                      {ext.paymentStatus === "pending" && ext.mpesaMessage && (
+                        <button
+                          onClick={() => setApprovingExt(ext)}
+                          className="mt-1 flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-500/15 border border-amber-500/30 hover:bg-amber-500/25 text-amber-400 text-xs font-semibold transition-colors whitespace-nowrap"
+                        >
+                          <Banknote className="w-3.5 h-3.5" /> Review Payment
+                        </button>
+                      )}
+
+                      {/* Admin manually marks as paid if no M-Pesa message submitted */}
+                      {ext.paymentStatus === "unpaid" && (
                         <button
                           disabled={markingPaidId === ext._id}
                           onClick={async () => {
@@ -876,6 +1124,20 @@ function PaymentsPanel() {
                 loadAll();
                 queryClient.invalidateQueries({ queryKey: getAdminGetRequestsQueryKey() });
               }}
+            />
+          )}
+          {approvingExt && (
+            <ExtPayApproveModal
+              ext={approvingExt}
+              onClose={() => setApprovingExt(null)}
+              onDone={() => { setApprovingExt(null); loadAll(); queryClient.invalidateQueries({ queryKey: getAdminGetRequestsQueryKey() }); }}
+            />
+          )}
+          {approvingStatement && (
+            <ServicePayApproveModal
+              statement={approvingStatement}
+              onClose={() => setApprovingStatement(null)}
+              onDone={() => { setApprovingStatement(null); loadAll(); queryClient.invalidateQueries({ queryKey: getAdminGetRequestsQueryKey() }); }}
             />
           )}
         </AnimatePresence>

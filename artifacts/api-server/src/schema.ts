@@ -79,6 +79,7 @@ export const serviceRequests = pgTable("service_requests", {
   paymentStatus:           paymentStatusEnum("payment_status").notNull().default("unpaid"),
   paymentPhone:            text("payment_phone"),
   pesapalOrderTrackingId:  text("pesapal_order_tracking_id"),
+  mpesaMessage:            text("mpesa_message"),
   createdAt:               timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt:               timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -99,6 +100,7 @@ export const deadlinePayments = pgTable("deadline_payments", {
   initiatedBy:            initiatedByEnum("initiated_by").notNull().default("user"),
   adminMessage:           text("admin_message"),
   adminRequestedDays:     integer("admin_requested_days"),
+  mpesaMessage:           text("mpesa_message"),
   createdAt:              timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt:              timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

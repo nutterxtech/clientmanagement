@@ -122,6 +122,8 @@ export async function runMigrations(): Promise<void> {
   // Incremental migrations
   await db.execute(sql`
     ALTER TABLE messages ADD COLUMN IF NOT EXISTS reply_to_id UUID REFERENCES messages(id) ON DELETE SET NULL;
+    ALTER TABLE service_requests ADD COLUMN IF NOT EXISTS mpesa_message TEXT;
+    ALTER TABLE deadline_payments ADD COLUMN IF NOT EXISTS mpesa_message TEXT;
   `);
 
   logger.info("Database migrations completed");
