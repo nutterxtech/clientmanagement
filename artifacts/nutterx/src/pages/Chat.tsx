@@ -277,14 +277,23 @@ function ViewOnceFullscreen({ imageData, mimeType, caption, isSender, onClose }:
       className="fixed inset-0 z-[400] flex flex-col"
       style={{ background: "rgba(0,0,0,0.97)" }}
     >
-      <div className="flex items-center justify-between px-4 h-14 shrink-0" style={{ background: "#075E54" }}>
-        <button onClick={onClose} className="text-white"><X className="w-5 h-5" /></button>
-        <span className="text-white text-sm font-semibold">
-          {isSender ? "Photo you sent (view once)" : "Viewed — deleted from servers"}
+      {/* Header */}
+      <div className="flex items-center gap-3 px-3 h-14 shrink-0" style={{ background: "#075E54" }}>
+        <button
+          onClick={onClose}
+          className="flex items-center gap-1.5 text-white font-semibold text-sm px-2 py-1.5 rounded-lg"
+          style={{ background: "rgba(255,255,255,0.12)" }}
+        >
+          <ArrowLeft className="w-5 h-5" />
+          Back
+        </button>
+        <span className="flex-1 text-center text-white text-sm font-semibold pr-14 truncate">
+          {isSender ? "Photo you sent · View once" : "View once photo"}
         </span>
-        <div className="w-5" />
       </div>
-      <div className="flex-1 flex items-center justify-center p-4">
+
+      {/* Image */}
+      <div className="flex-1 flex items-center justify-center p-4 min-h-0">
         {src ? (
           <img src={src} alt="View once" className="max-w-full max-h-full object-contain rounded-lg" />
         ) : (
@@ -295,16 +304,29 @@ function ViewOnceFullscreen({ imageData, mimeType, caption, isSender, onClose }:
           </div>
         )}
       </div>
+
+      {/* Caption */}
       {caption && (
-        <div className="px-6 pb-4 text-center shrink-0">
+        <div className="px-6 pb-3 text-center shrink-0">
           <p className="text-white/90 text-sm font-medium leading-relaxed">{caption}</p>
         </div>
       )}
-      {!isSender && src && (
-        <div className="px-4 pb-6 text-center shrink-0">
-          <p className="text-white/40 text-xs">This photo has been permanently deleted from our servers.</p>
-        </div>
-      )}
+
+      {/* Bottom bar */}
+      <div className="px-5 pb-8 pt-2 shrink-0 flex flex-col items-center gap-2">
+        {!isSender && src && (
+          <p className="text-white/35 text-xs text-center">
+            This photo will be permanently deleted once you close this screen.
+          </p>
+        )}
+        <button
+          onClick={onClose}
+          className="w-full py-3 rounded-2xl text-white font-semibold text-sm"
+          style={{ background: "#25D366" }}
+        >
+          Done
+        </button>
+      </div>
     </motion.div>
   );
 }
@@ -1093,11 +1115,11 @@ export default function Chat() {
                               {msg.type === "view_once_image" ? (
                                 <div className="flex flex-col gap-1">
                                   {msg.viewOnceViewed && !isOwn ? (
-                                    /* Already viewed by this user */
-                                    <div className="flex items-center gap-2.5 py-0.5 opacity-60 select-none">
+                                    /* Already viewed — non-tappable, mirrors sender style */
+                                    <div className="flex items-center gap-2.5 py-0.5 select-none">
                                       <div
                                         className="w-9 h-9 rounded-full flex items-center justify-center shrink-0"
-                                        style={{ background: "rgba(0,0,0,0.08)" }}
+                                        style={{ background: "rgba(7,94,84,0.10)" }}
                                       >
                                         <EyeOff className="w-4 h-4" style={{ color: "#667781" }} />
                                       </div>
@@ -1105,8 +1127,8 @@ export default function Chat() {
                                         <div className="text-xs font-semibold" style={{ color: "#667781" }}>
                                           Photo · Opened
                                         </div>
-                                        <div className="text-[10px]" style={{ color: "#aaa" }}>
-                                          You've already viewed this
+                                        <div className="text-[10px]" style={{ color: "#999" }}>
+                                          Already viewed
                                         </div>
                                       </div>
                                     </div>
