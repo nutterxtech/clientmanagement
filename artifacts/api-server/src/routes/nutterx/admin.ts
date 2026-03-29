@@ -49,13 +49,32 @@ router.post("/users", authenticate, requireAdmin, async (req: AuthRequest, res: 
 router.get("/requests", authenticate, requireAdmin, async (_req: AuthRequest, res: Response): Promise<void> => {
   try {
     const db = getDb();
-    const rows = await db.select().from(serviceRequests);
-    rows.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-    const withUsers = await Promise.all(rows.map(async r => {
-      const [u] = await db.select({ id: users.id, name: users.name, email: users.email }).from(users).where(eq(users.id, r.userId)).limit(1);
-      return { ...r, user: u };
-    }));
-    res.json(withUsers.map(formatRequest));
+    function rawRows(r: any): any[] { return Array.isArray(r) ? r : (r?.rows ?? []); }
+
+    // DISTINCT ON (user_id, service_name) keeps the newest row per user+service,
+    // so re-requests after expiry don't create duplicate admin entries.
+    const rows = rawRows(await db.execute(sql`
+      SELECT DISTINCT ON (user_id, service_name)
+        sr.id, sr.user_id AS "userId", sr.service_id AS "serviceId",
+        sr.service_name AS "serviceName", sr.description, sr.requirements,
+        sr.status, sr.admin_notes AS "adminNotes",
+        sr.payment_required AS "paymentRequired",
+        sr.payment_status AS "paymentStatus", sr.payment_amount AS "paymentAmount",
+        sr.mpesa_message AS "mpesaMessage",
+        sr.subscription_ends_at AS "subscriptionEndsAt",
+        sr.created_at AS "createdAt", sr.updated_at AS "updatedAt",
+        u.id AS "uId", u.name AS "uName", u.email AS "uEmail"
+      FROM service_requests sr
+      LEFT JOIN users u ON sr.user_id = u.id
+      ORDER BY user_id, service_name, sr.created_at DESC
+    `));
+
+    rows.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+    res.json(rows.map((r: any) => formatRequest({
+      ...r,
+      user: r.uId ? { id: r.uId, name: r.uName, email: r.uEmail } : null,
+    })));
   } catch { res.status(500).json({ message: "Failed to fetch requests" }); }
 });
 
@@ -121,13 +140,33 @@ router.get("/chats", authenticate, requireAdmin, async (_req: AuthRequest, res: 
 router.get("/clients", authenticate, async (_req: AuthRequest, res: Response): Promise<void> => {
   try {
     const db = getDb();
-    const rows = await db.select().from(serviceRequests).where(inArray(serviceRequests.status, ["in_progress", "completed"]));
-    rows.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-    const result = await Promise.all(rows.map(async r => {
-      const [u] = await db.select({ id: users.id, name: users.name, email: users.email }).from(users).where(eq(users.id, r.userId)).limit(1);
-      return { _id: r.id, user: u ? { ...u, _id: u.id } : null, serviceName: r.serviceName, status: r.status, subscriptionEndsAt: r.subscriptionEndsAt, completedAt: r.completedAt, createdAt: r.createdAt };
-    }));
-    res.json(result);
+    function rawRows(r: any): any[] { return Array.isArray(r) ? r : (r?.rows ?? []); }
+
+    // For each user+service keep only the most recent in_progress/completed row.
+    // This prevents a person who re-requested after expiry from appearing twice.
+    const rows = rawRows(await db.execute(sql`
+      SELECT DISTINCT ON (sr.user_id, sr.service_name)
+        sr.id, sr.user_id AS "userId", sr.service_name AS "serviceName",
+        sr.status, sr.subscription_ends_at AS "subscriptionEndsAt",
+        sr.completed_at AS "completedAt", sr.created_at AS "createdAt",
+        u.id AS "uId", u.name AS "uName", u.email AS "uEmail"
+      FROM service_requests sr
+      LEFT JOIN users u ON sr.user_id = u.id
+      WHERE sr.status IN ('in_progress', 'completed')
+      ORDER BY sr.user_id, sr.service_name, sr.created_at DESC
+    `));
+
+    rows.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+    res.json(rows.map((r: any) => ({
+      _id: r.id,
+      user: r.uId ? { id: r.uId, _id: r.uId, name: r.uName, email: r.uEmail } : null,
+      serviceName: r.serviceName,
+      status: r.status,
+      subscriptionEndsAt: r.subscriptionEndsAt,
+      completedAt: r.completedAt,
+      createdAt: r.createdAt,
+    })));
   } catch { res.status(500).json({ message: "Failed to fetch clients" }); }
 });
 
