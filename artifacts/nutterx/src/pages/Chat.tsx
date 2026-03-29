@@ -379,6 +379,21 @@ export default function Chat() {
       .catch(() => {});
   }, []);
 
+  // Auto-create admin chat for every non-admin user so it always appears pinned
+  useEffect(() => {
+    if (!chats || chatsLoading || user?.role === "admin") return;
+    const hasAdminChat = chats.some((c: any) =>
+      c.type === "direct" && c.participants?.some((p: any) => p.role === "admin")
+    );
+    if (hasAdminChat) return;
+    const token = localStorage.getItem("nutterx_token");
+    if (!token) return;
+    fetch("/api/support/contact-admin", { method: "POST", headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.ok ? r.json() : null)
+      .then(chat => { if (chat?._id) refetchChats(); })
+      .catch(() => {});
+  }, [chats, chatsLoading, user?.role]);
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
@@ -1027,9 +1042,13 @@ export default function Chat() {
                         onError={e => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
                     : activeChat?.type === "group"
                     ? <Users className="w-4 h-4" />
-                    : activeChat
-                    ? getChatAvatar(activeChat)
-                    : "?"}
+                    : (() => {
+                        const other = activeChat?.participants?.find((p: any) => p._id !== user?._id);
+                        return other?.avatar
+                          ? <img src={other.avatar} alt={other.name} className="w-full h-full object-cover"
+                              onError={e => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
+                          : <span className="text-white font-bold text-sm">{getChatAvatar(activeChat) ?? "?"}</span>;
+                      })()}
                   {activeChatOtherId && isOnline(activeChatOtherId) && (
                     <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-[#25D366] border-2 border-[#075E54] rounded-full" />
                   )}
@@ -1103,9 +1122,20 @@ export default function Chat() {
                             }}
                           >
                             {!isOwn && (
-                              <span className="text-xs mb-0.5 ml-3 font-semibold" style={{ color: "#075E54" }}>
-                                {msg.sender?.name}
-                              </span>
+                              <div className="flex items-center gap-1.5 mb-0.5 ml-1">
+                                <div
+                                  className="w-5 h-5 rounded-full shrink-0 overflow-hidden flex items-center justify-center text-white font-bold text-[9px]"
+                                  style={{ background: "linear-gradient(135deg,#075E54,#25D366)" }}
+                                >
+                                  {msg.sender?.avatar
+                                    ? <img src={msg.sender.avatar} alt={msg.sender.name} className="w-full h-full object-cover"
+                                        onError={e => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
+                                    : msg.sender?.name?.charAt(0).toUpperCase() || "?"}
+                                </div>
+                                <span className="text-xs font-semibold" style={{ color: "#075E54" }}>
+                                  {msg.sender?.name}
+                                </span>
+                              </div>
                             )}
                             <div
                               className="px-3.5 py-2 text-sm break-words leading-relaxed shadow-sm relative"
