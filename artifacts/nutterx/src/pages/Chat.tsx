@@ -92,13 +92,14 @@ type CropState = { x: number; y: number; w: number; h: number };
 /* ── Crop Modal ─────────────────────────────────────────────── */
 function CropModal({ objectUrl, onSend, onCancel }: {
   objectUrl: string;
-  onSend: (base64: string, mimeType: string) => void;
+  onSend: (base64: string, mimeType: string, caption: string) => void;
   onCancel: () => void;
 }) {
   const imgRef = useRef<HTMLImageElement>(null);
   const [nat, setNat]   = useState({ w: 0, h: 0 });
   const [disp, setDisp] = useState({ w: 0, h: 0 });
   const [crop, setCrop] = useState<CropState>({ x: 0.1, y: 0.1, w: 0.8, h: 0.8 });
+  const [caption, setCaption] = useState("");
   const drag = useRef<{ mode: DragMode; sx: number; sy: number; sc: CropState } | null>(null);
 
   const onImgLoad = () => {
@@ -175,7 +176,7 @@ function CropModal({ objectUrl, onSend, onCancel }: {
     const sw = Math.round(crop.w * nat.w), sh = Math.round(crop.h * nat.h);
     canvas.width = sw; canvas.height = sh;
     canvas.getContext("2d")!.drawImage(imgRef.current, sx, sy, sw, sh, 0, 0, sw, sh);
-    onSend(canvas.toDataURL("image/jpeg", 0.85).split(",")[1]!, "image/jpeg");
+    onSend(canvas.toDataURL("image/jpeg", 0.85).split(",")[1]!, "image/jpeg", caption.trim());
   };
 
   const corners: { mode: DragMode; style: React.CSSProperties }[] = [
@@ -233,7 +234,19 @@ function CropModal({ objectUrl, onSend, onCancel }: {
         </div>
       </div>
 
-      <div className="flex items-center justify-between px-6 py-4 shrink-0" style={{ background: "#111" }}>
+      <div className="shrink-0 px-4 pb-2" style={{ background: "#111" }}>
+        <input
+          type="text"
+          value={caption}
+          onChange={e => setCaption(e.target.value)}
+          onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); handleSend(); } }}
+          placeholder="Add a caption…"
+          maxLength={300}
+          style={{ fontSize: 16 }}
+          className="w-full bg-white/10 text-white placeholder:text-white/40 rounded-xl px-4 py-2.5 text-sm outline-none border border-white/10 focus:border-white/30"
+        />
+      </div>
+      <div className="flex items-center justify-between px-6 py-3 shrink-0" style={{ background: "#111" }}>
         <button onClick={onCancel} className="text-white/60 text-sm font-medium">Cancel</button>
         <button onClick={handleSend}
           className="flex items-center gap-2 px-7 py-2.5 rounded-full text-white font-bold text-sm"
@@ -247,9 +260,10 @@ function CropModal({ objectUrl, onSend, onCancel }: {
 }
 
 /* ── View-Once Fullscreen ───────────────────────────────────── */
-function ViewOnceFullscreen({ imageData, mimeType, isSender, onClose }: {
+function ViewOnceFullscreen({ imageData, mimeType, caption, isSender, onClose }: {
   imageData: string | null;
   mimeType: string;
+  caption?: string | null;
   isSender: boolean;
   onClose: () => void;
 }) {
@@ -279,6 +293,11 @@ function ViewOnceFullscreen({ imageData, mimeType, isSender, onClose }: {
           </div>
         )}
       </div>
+      {caption && (
+        <div className="px-6 pb-4 text-center shrink-0">
+          <p className="text-white/90 text-sm font-medium leading-relaxed">{caption}</p>
+        </div>
+      )}
       {!isSender && src && (
         <div className="px-4 pb-6 text-center shrink-0">
           <p className="text-white/40 text-xs">This photo has been permanently deleted from our servers.</p>
@@ -305,7 +324,7 @@ export default function Chat() {
   const swipeMeta = useRef<{ id: string; startX: number } | null>(null);
   const [optimisticMsgs, setOptimisticMsgs] = useState<any[]>([]);
   const [cropModal, setCropModal] = useState<{ objectUrl: string } | null>(null);
-  const [viewOnceFs, setViewOnceFs] = useState<{ imageData: string | null; mimeType: string; isSender: boolean } | null>(null);
+  const [viewOnceFs, setViewOnceFs] = useState<{ imageData: string | null; mimeType: string; caption?: string | null; isSender: boolean } | null>(null);
   const [sendingViewOnce, setSendingViewOnce] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -418,7 +437,7 @@ export default function Chat() {
     e.target.value = "";
   };
 
-  const handleCropSend = async (base64: string, mimeType: string) => {
+  const handleCropSend = async (base64: string, mimeType: string, caption: string) => {
     if (!activeChatId) return;
     const objectUrl = cropModal?.objectUrl;
     setCropModal(null);
@@ -429,12 +448,15 @@ export default function Chat() {
       const res = await fetch("/api/view-once", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ chatId: activeChatId, imageData: base64, mimeType }),
+        body: JSON.stringify({ chatId: activeChatId, imageData: base64, mimeType, caption: caption || undefined }),
       });
-      if (!res.ok) throw new Error("Failed to send");
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || "Failed to send");
+      }
       refetchMessages();
-    } catch {
-      alert("Failed to send the photo. Please try again.");
+    } catch (e: any) {
+      alert(e?.message || "Failed to send the photo. Please try again.");
     } finally {
       setSendingViewOnce(false);
     }
@@ -447,12 +469,12 @@ export default function Chat() {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.status === 410 || res.status === 404) {
-        setViewOnceFs({ imageData: null, mimeType: "image/jpeg", isSender: isSenderCheck });
+        setViewOnceFs({ imageData: null, mimeType: "image/jpeg", caption: null, isSender: isSenderCheck });
         return;
       }
       if (!res.ok) throw new Error();
       const data = await res.json();
-      setViewOnceFs({ imageData: data.imageData, mimeType: data.mimeType || "image/jpeg", isSender: data.isSender });
+      setViewOnceFs({ imageData: data.imageData, mimeType: data.mimeType || "image/jpeg", caption: data.caption || null, isSender: data.isSender });
       if (!data.isSender) refetchMessages();
     } catch {
       alert("Could not load photo.");
@@ -593,6 +615,7 @@ export default function Chat() {
           <ViewOnceFullscreen
             imageData={viewOnceFs.imageData}
             mimeType={viewOnceFs.mimeType}
+            caption={viewOnceFs.caption}
             isSender={viewOnceFs.isSender}
             onClose={() => setViewOnceFs(null)}
           />
@@ -919,25 +942,32 @@ export default function Chat() {
                                 </div>
                               )}
                               {msg.type === "view_once_image" ? (
-                                <button
-                                  onClick={() => handleViewOnce(msg.content, isOwn)}
-                                  className="flex items-center gap-2.5 py-0.5 select-none"
-                                >
-                                  <div
-                                    className="w-9 h-9 rounded-full flex items-center justify-center shrink-0"
-                                    style={{ background: isOwn ? "rgba(0,0,0,0.12)" : "rgba(7,94,84,0.12)" }}
+                                <div className="flex flex-col gap-1">
+                                  <button
+                                    onClick={() => handleViewOnce(msg.content, isOwn)}
+                                    className="flex items-center gap-2.5 py-0.5 select-none"
                                   >
-                                    <Eye className="w-4 h-4" style={{ color: isOwn ? "#075E54" : "#075E54" }} />
-                                  </div>
-                                  <div className="text-left">
-                                    <div className="text-xs font-semibold" style={{ color: "#075E54" }}>
-                                      {isOwn ? "Photo · View once" : "Photo · Tap to view"}
+                                    <div
+                                      className="w-9 h-9 rounded-full flex items-center justify-center shrink-0"
+                                      style={{ background: isOwn ? "rgba(0,0,0,0.12)" : "rgba(7,94,84,0.12)" }}
+                                    >
+                                      <Eye className="w-4 h-4" style={{ color: "#075E54" }} />
                                     </div>
-                                    <div className="text-[10px]" style={{ color: "#667781" }}>
-                                      {isOwn ? "Sent" : "Once viewed, it's gone"}
+                                    <div className="text-left">
+                                      <div className="text-xs font-semibold" style={{ color: "#075E54" }}>
+                                        {isOwn ? "Photo · View once" : "Photo · Tap to view"}
+                                      </div>
+                                      <div className="text-[10px]" style={{ color: "#667781" }}>
+                                        {isOwn ? "Sent" : "Once viewed, it's gone"}
+                                      </div>
                                     </div>
-                                  </div>
-                                </button>
+                                  </button>
+                                  {msg.viewOnceCaption && (
+                                    <p className="text-xs leading-snug mt-0.5" style={{ color: "#111" }}>
+                                      {msg.viewOnceCaption}
+                                    </p>
+                                  )}
+                                </div>
                               ) : renderContent(msg.content, setPreviewUrl)}
                             </div>
                             <div className="flex items-center gap-2 mt-0.5 px-1">

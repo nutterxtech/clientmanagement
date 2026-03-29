@@ -119,13 +119,11 @@ export async function runMigrations(): Promise<void> {
     );
   `);
 
-  // Incremental migrations
-  await db.execute(sql`
-    ALTER TABLE messages ADD COLUMN IF NOT EXISTS reply_to_id UUID REFERENCES messages(id) ON DELETE SET NULL;
-    ALTER TABLE service_requests ADD COLUMN IF NOT EXISTS mpesa_message TEXT;
-    ALTER TABLE deadline_payments ADD COLUMN IF NOT EXISTS mpesa_message TEXT;
-    ALTER TABLE messages ADD COLUMN IF NOT EXISTS type TEXT NOT NULL DEFAULT 'text';
-  `);
+  // Incremental migrations — each in its own execute call so failures are isolated
+  await db.execute(sql`ALTER TABLE messages ADD COLUMN IF NOT EXISTS reply_to_id UUID REFERENCES messages(id) ON DELETE SET NULL`);
+  await db.execute(sql`ALTER TABLE service_requests ADD COLUMN IF NOT EXISTS mpesa_message TEXT`);
+  await db.execute(sql`ALTER TABLE deadline_payments ADD COLUMN IF NOT EXISTS mpesa_message TEXT`);
+  await db.execute(sql`ALTER TABLE messages ADD COLUMN IF NOT EXISTS type TEXT NOT NULL DEFAULT 'text'`);
 
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS view_once_images (
@@ -135,11 +133,13 @@ export async function runMigrations(): Promise<void> {
       chat_id     UUID NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
       image_data  TEXT,
       mime_type   TEXT NOT NULL DEFAULT 'image/jpeg',
+      caption     TEXT,
       viewed      BOOLEAN NOT NULL DEFAULT false,
       viewed_at   TIMESTAMPTZ,
       created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
-    );
+    )
   `);
+  await db.execute(sql`ALTER TABLE view_once_images ADD COLUMN IF NOT EXISTS caption TEXT`);
 
   logger.info("Database migrations completed");
 }

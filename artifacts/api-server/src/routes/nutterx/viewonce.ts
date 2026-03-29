@@ -2,15 +2,25 @@ import { Router, Response } from "express";
 import { getDb } from "../../lib/db";
 import { sql } from "drizzle-orm";
 import { authenticate, AuthRequest } from "../../middlewares/auth";
+import { logger } from "../../lib/logger";
 
 const router = Router();
 
+// With postgres.js driver, db.execute() returns a RowList (array-like), not {rows:[]}
+// So we cast to any[] directly.
+function rows(result: any): any[] {
+  // postgres.js RowList is iterable/array-like
+  if (Array.isArray(result)) return result;
+  if (result && Array.isArray(result.rows)) return result.rows;
+  return [];
+}
+
 /* ── POST /api/view-once
-   Body: { chatId, imageData (base64), mimeType }
+   Body: { chatId, imageData (base64), mimeType, caption? }
    Creates a message of type 'view_once_image' and stores the image. */
 router.post("/", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const { chatId, imageData, mimeType } = req.body;
+    const { chatId, imageData, mimeType, caption } = req.body;
     const userId = req.user!.id;
     const db = getDb();
 
@@ -23,28 +33,32 @@ router.post("/", authenticate, async (req: AuthRequest, res: Response): Promise<
     const part = await db.execute(sql`
       SELECT 1 FROM chat_participants WHERE chat_id = ${chatId} AND user_id = ${userId}
     `);
-    if (!part.rows.length) {
+    if (!rows(part).length) {
       res.status(403).json({ error: "Not a participant of this chat" });
       return;
     }
 
-    // Create message with placeholder content
+    // Create message
     const msgResult = await db.execute(sql`
       INSERT INTO messages (chat_id, sender_id, content, type)
-      VALUES (${chatId}, ${userId}, 'view_once_image', 'view_once_image')
+      VALUES (${chatId}, ${userId}, 'pending', 'view_once_image')
       RETURNING id
     `);
-    const messageId = msgResult.rows[0]!.id as string;
+    const messageId = rows(msgResult)[0]!.id as string;
 
-    // Store image data
+    // Store image + optional caption
     const imgResult = await db.execute(sql`
-      INSERT INTO view_once_images (message_id, sender_id, chat_id, image_data, mime_type)
-      VALUES (${messageId}, ${userId}, ${chatId}, ${imageData}, ${mimeType || "image/jpeg"})
+      INSERT INTO view_once_images (message_id, sender_id, chat_id, image_data, mime_type, caption)
+      VALUES (
+        ${messageId}, ${userId}, ${chatId},
+        ${imageData}, ${mimeType || "image/jpeg"},
+        ${caption || null}
+      )
       RETURNING id
     `);
-    const imageId = imgResult.rows[0]!.id as string;
+    const imageId = rows(imgResult)[0]!.id as string;
 
-    // Update message content to the imageId so clients can fetch it
+    // Point message.content to the imageId
     await db.execute(sql`
       UPDATE messages SET content = ${imageId} WHERE id = ${messageId}
     `);
@@ -62,13 +76,13 @@ router.post("/", authenticate, async (req: AuthRequest, res: Response): Promise<
 
     res.status(201).json({ messageId, imageId });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "view-once POST failed");
+    res.status(500).json({ error: err.message || "Failed to send photo" });
   }
 });
 
 /* ── GET /api/view-once/:imageId
-   Returns image data. If viewer is not the sender and the image hasn't been
-   viewed yet, marks it viewed and wipes the image_data from the DB. */
+   Returns image data (+caption). Non-sender first view consumes the image. */
 router.get("/:imageId", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { imageId } = req.params;
@@ -76,29 +90,28 @@ router.get("/:imageId", authenticate, async (req: AuthRequest, res: Response): P
     const db = getDb();
 
     const result = await db.execute(sql`
-      SELECT vi.id, vi.image_data, vi.mime_type, vi.viewed, vi.sender_id, vi.chat_id
+      SELECT vi.id, vi.image_data, vi.mime_type, vi.caption, vi.viewed, vi.sender_id, vi.chat_id
       FROM view_once_images vi
       WHERE vi.id = ${imageId}
     `);
 
-    if (!result.rows.length) {
+    const resultRows = rows(result);
+    if (!resultRows.length) {
       res.status(404).json({ error: "Image not found" });
       return;
     }
 
-    const img = result.rows[0] as any;
+    const img = resultRows[0] as any;
     const isSender = img.sender_id === userId;
 
-    // Already viewed by someone else
     if (img.viewed && !isSender) {
       res.status(410).json({ error: "Image already viewed and deleted" });
       return;
     }
 
-    // Image data wiped (viewed by recipient) — sender still gets the stub
     if (!img.image_data) {
       if (isSender) {
-        res.json({ imageData: null, mimeType: img.mime_type, viewed: true, isSender: true });
+        res.json({ imageData: null, mimeType: img.mime_type, caption: img.caption, viewed: true, isSender: true });
       } else {
         res.status(410).json({ error: "Image already viewed and deleted" });
       }
@@ -122,11 +135,13 @@ router.get("/:imageId", authenticate, async (req: AuthRequest, res: Response): P
     res.json({
       imageData: img.image_data,
       mimeType: img.mime_type,
+      caption: img.caption || null,
       viewed: img.viewed,
       isSender,
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "view-once GET failed");
+    res.status(500).json({ error: err.message || "Failed to fetch photo" });
   }
 });
 

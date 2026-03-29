@@ -160,6 +160,22 @@ router.get("/:chatId/messages", authenticate, async (req: AuthRequest, res: Resp
       }
     }
 
+    // Fetch view-once captions in one batch (postgres.js returns RowList, which is array-like)
+    const viewOnceIds = paged
+      .filter(m => (m as any).type === "view_once_image" && m.content)
+      .map(m => m.content);
+    const captionMap: Record<string, string | null> = {};
+    if (viewOnceIds.length) {
+      try {
+        const capRows = await db.execute(sql`
+          SELECT id, caption FROM view_once_images WHERE id = ANY(${viewOnceIds}::uuid[])
+        `);
+        for (const r of (Array.isArray(capRows) ? capRows : (capRows as any).rows ?? []) as any[]) {
+          captionMap[r.id] = r.caption ?? null;
+        }
+      } catch { /* view_once_images might not exist yet */ }
+    }
+
     // Mark as read
     await db.update(messages)
       .set({ read: true })
@@ -169,6 +185,7 @@ router.get("/:chatId/messages", authenticate, async (req: AuthRequest, res: Resp
       ...m, _id: m.id,
       sender: { ...m.sender, _id: m.sender.id },
       replyTo: m.replyToId ? (replyMap[m.replyToId] ?? null) : null,
+      viewOnceCaption: (m as any).type === "view_once_image" ? (captionMap[m.content] ?? null) : undefined,
     })));
   } catch {
     res.status(500).json({ message: "Failed to fetch messages" });
