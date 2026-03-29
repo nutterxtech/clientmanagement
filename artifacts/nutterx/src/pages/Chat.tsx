@@ -753,19 +753,33 @@ export default function Chat() {
               >
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2.5">
-                    <button
-                      onClick={() => { setProfileUrlInput((user as any)?.avatar || ""); setProfileModal(true); }}
-                      className="w-8 h-8 rounded-full overflow-hidden shrink-0 border-2 border-white/40 flex items-center justify-center"
-                      style={{ background: "rgba(255,255,255,0.15)" }}
-                      title="Set profile photo"
-                    >
-                      {(user as any)?.avatar ? (
-                        <img src={(user as any).avatar} alt={user?.name} className="w-full h-full object-cover"
-                          onError={e => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
-                      ) : (
-                        <span className="text-white text-xs font-bold">{user?.name?.charAt(0).toUpperCase()}</span>
+                    {/* Avatar button — pulsing ring shown while the profile-photo hint is active */}
+                    <div className="relative shrink-0">
+                      {!(user as any)?.avatar && !profileHintDismissed && (
+                        <>
+                          <span className="absolute -inset-1.5 rounded-full animate-ping"
+                            style={{ background: "rgba(37,211,102,0.55)", animationDuration: "1.2s" }} />
+                          <span className="absolute -inset-1.5 rounded-full"
+                            style={{ background: "rgba(37,211,102,0.28)", border: "2px solid #25D366" }} />
+                        </>
                       )}
-                    </button>
+                      <button
+                        onClick={() => { setProfileUrlInput((user as any)?.avatar || ""); setProfileModal(true); }}
+                        className="relative w-8 h-8 rounded-full overflow-hidden border-2 flex items-center justify-center"
+                        style={{
+                          background: "rgba(255,255,255,0.15)",
+                          borderColor: !(user as any)?.avatar && !profileHintDismissed ? "#25D366" : "rgba(255,255,255,0.4)",
+                        }}
+                        title="Set profile photo"
+                      >
+                        {(user as any)?.avatar ? (
+                          <img src={(user as any).avatar} alt={user?.name} className="w-full h-full object-cover"
+                            onError={e => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
+                        ) : (
+                          <span className="text-white text-xs font-bold">{user?.name?.charAt(0).toUpperCase()}</span>
+                        )}
+                      </button>
+                    </div>
                     <h1 className="text-xl font-bold text-white tracking-tight">Messages</h1>
                   </div>
                   <div className={cn(
@@ -804,9 +818,13 @@ export default function Chat() {
                     <Camera className="w-4 h-4" style={{ color: "#075E54" }} />
                   </button>
                   <div className="flex-1 min-w-0">
-                    <p className="text-xs font-semibold" style={{ color: "#075E54" }}>Add a profile photo</p>
-                    <p className="text-[11px] leading-tight" style={{ color: "#4a8f70" }}>
-                      Tap your initial in the top-left to personalise your account.
+                    <div className="flex items-center gap-1.5">
+                      <p className="text-xs font-semibold" style={{ color: "#075E54" }}>Add a profile photo</p>
+                      {/* Arrow pointing up-left toward the avatar button */}
+                      <span className="text-[10px] font-bold animate-bounce inline-block" style={{ color: "#25D366", lineHeight: 1 }}>↖ tap here</span>
+                    </div>
+                    <p className="text-[11px] leading-tight mt-0.5" style={{ color: "#4a8f70" }}>
+                      Tap the glowing circle at the top-left to set your photo.
                     </p>
                   </div>
                   <button
