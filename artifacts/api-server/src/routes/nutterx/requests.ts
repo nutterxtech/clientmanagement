@@ -1,5 +1,5 @@
 import { Router, Response } from "express";
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { getDb } from "../../lib/db";
 import { serviceRequests, users } from "../../schema";
 import { authenticate, AuthRequest } from "../../middlewares/auth";
@@ -44,17 +44,38 @@ router.post("/", authenticate, async (req: AuthRequest, res: Response): Promise<
 router.get("/", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const db = getDb();
-    const rows = await db.select().from(serviceRequests)
-      .where(eq(serviceRequests.userId, req.user!.id));
-    rows.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    const userId = req.user!.id;
 
-    const withUsers = await Promise.all(rows.map(async r => {
-      const [u] = await db.select({ id: users.id, name: users.name, email: users.email })
-        .from(users).where(eq(users.id, r.userId)).limit(1);
-      return { ...r, user: u };
-    }));
-    res.json(withUsers.map(formatRequest));
-  } catch {
+    // Use DISTINCT ON (service_name) to return only the most recent request
+    // per service for this user.  If they re-request after expiry only the
+    // newest entry appears — older duplicates are suppressed.
+    function rawRows(r: any): any[] {
+      return Array.isArray(r) ? r : (r?.rows ?? []);
+    }
+
+    const rows = rawRows(await db.execute(sql`
+      SELECT DISTINCT ON (service_name)
+        id, user_id AS "userId", service_id AS "serviceId",
+        service_name AS "serviceName", description, requirements, status,
+        admin_notes AS "adminNotes", payment_required AS "paymentRequired",
+        payment_status AS "paymentStatus", payment_amount AS "paymentAmount",
+        mpesa_message AS "mpesaMessage",
+        subscription_ends_at AS "subscriptionEndsAt",
+        created_at AS "createdAt", updated_at AS "updatedAt"
+      FROM service_requests
+      WHERE user_id = ${userId}
+      ORDER BY service_name, created_at DESC
+    `));
+
+    // Sort final list by most-recently-created first
+    rows.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+    // Attach user info (single lookup — all rows belong to the same user)
+    const [u] = await db.select({ id: users.id, name: users.name, email: users.email })
+      .from(users).where(eq(users.id, userId)).limit(1);
+
+    res.json(rows.map((r: any) => formatRequest({ ...r, user: u })));
+  } catch (err) {
     res.status(500).json({ message: "Failed to fetch requests" });
   }
 });
