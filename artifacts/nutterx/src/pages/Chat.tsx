@@ -379,6 +379,21 @@ export default function Chat() {
       .catch(() => {});
   }, []);
 
+  // Auto-create admin chat for every non-admin user so it always appears pinned
+  useEffect(() => {
+    if (!chats || chatsLoading || user?.role === "admin") return;
+    const hasAdminChat = chats.some((c: any) =>
+      c.type === "direct" && c.participants?.some((p: any) => p.role === "admin")
+    );
+    if (hasAdminChat) return;
+    const token = localStorage.getItem("nutterx_token");
+    if (!token) return;
+    fetch("/api/support/contact-admin", { method: "POST", headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.ok ? r.json() : null)
+      .then(chat => { if (chat?._id) refetchChats(); })
+      .catch(() => {});
+  }, [chats, chatsLoading, user?.role]);
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
@@ -753,19 +768,33 @@ export default function Chat() {
               >
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2.5">
-                    <button
-                      onClick={() => { setProfileUrlInput((user as any)?.avatar || ""); setProfileModal(true); }}
-                      className="w-8 h-8 rounded-full overflow-hidden shrink-0 border-2 border-white/40 flex items-center justify-center"
-                      style={{ background: "rgba(255,255,255,0.15)" }}
-                      title="Set profile photo"
-                    >
-                      {(user as any)?.avatar ? (
-                        <img src={(user as any).avatar} alt={user?.name} className="w-full h-full object-cover"
-                          onError={e => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
-                      ) : (
-                        <span className="text-white text-xs font-bold">{user?.name?.charAt(0).toUpperCase()}</span>
+                    {/* Avatar button — pulsing ring shown while the profile-photo hint is active */}
+                    <div className="relative shrink-0">
+                      {!(user as any)?.avatar && !profileHintDismissed && (
+                        <>
+                          <span className="absolute -inset-1.5 rounded-full animate-ping"
+                            style={{ background: "rgba(37,211,102,0.55)", animationDuration: "1.2s" }} />
+                          <span className="absolute -inset-1.5 rounded-full"
+                            style={{ background: "rgba(37,211,102,0.28)", border: "2px solid #25D366" }} />
+                        </>
                       )}
-                    </button>
+                      <button
+                        onClick={() => { setProfileUrlInput((user as any)?.avatar || ""); setProfileModal(true); }}
+                        className="relative w-8 h-8 rounded-full overflow-hidden border-2 flex items-center justify-center"
+                        style={{
+                          background: "rgba(255,255,255,0.15)",
+                          borderColor: !(user as any)?.avatar && !profileHintDismissed ? "#25D366" : "rgba(255,255,255,0.4)",
+                        }}
+                        title="Set profile photo"
+                      >
+                        {(user as any)?.avatar ? (
+                          <img src={(user as any).avatar} alt={user?.name} className="w-full h-full object-cover"
+                            onError={e => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
+                        ) : (
+                          <span className="text-white text-xs font-bold">{user?.name?.charAt(0).toUpperCase()}</span>
+                        )}
+                      </button>
+                    </div>
                     <h1 className="text-xl font-bold text-white tracking-tight">Messages</h1>
                   </div>
                   <div className={cn(
@@ -804,9 +833,13 @@ export default function Chat() {
                     <Camera className="w-4 h-4" style={{ color: "#075E54" }} />
                   </button>
                   <div className="flex-1 min-w-0">
-                    <p className="text-xs font-semibold" style={{ color: "#075E54" }}>Add a profile photo</p>
-                    <p className="text-[11px] leading-tight" style={{ color: "#4a8f70" }}>
-                      Tap your initial in the top-left to personalise your account.
+                    <div className="flex items-center gap-1.5">
+                      <p className="text-xs font-semibold" style={{ color: "#075E54" }}>Add a profile photo</p>
+                      {/* Arrow pointing up-left toward the avatar button */}
+                      <span className="text-[10px] font-bold animate-bounce inline-block" style={{ color: "#25D366", lineHeight: 1 }}>↖ tap here</span>
+                    </div>
+                    <p className="text-[11px] leading-tight mt-0.5" style={{ color: "#4a8f70" }}>
+                      Tap the glowing circle at the top-left to set your photo.
                     </p>
                   </div>
                   <button
@@ -1009,9 +1042,13 @@ export default function Chat() {
                         onError={e => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
                     : activeChat?.type === "group"
                     ? <Users className="w-4 h-4" />
-                    : activeChat
-                    ? getChatAvatar(activeChat)
-                    : "?"}
+                    : (() => {
+                        const other = activeChat?.participants?.find((p: any) => p._id !== user?._id);
+                        return other?.avatar
+                          ? <img src={other.avatar} alt={other.name} className="w-full h-full object-cover"
+                              onError={e => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
+                          : <span className="text-white font-bold text-sm">{getChatAvatar(activeChat) ?? "?"}</span>;
+                      })()}
                   {activeChatOtherId && isOnline(activeChatOtherId) && (
                     <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-[#25D366] border-2 border-[#075E54] rounded-full" />
                   )}
@@ -1085,9 +1122,20 @@ export default function Chat() {
                             }}
                           >
                             {!isOwn && (
-                              <span className="text-xs mb-0.5 ml-3 font-semibold" style={{ color: "#075E54" }}>
-                                {msg.sender?.name}
-                              </span>
+                              <div className="flex items-center gap-1.5 mb-0.5 ml-1">
+                                <div
+                                  className="w-5 h-5 rounded-full shrink-0 overflow-hidden flex items-center justify-center text-white font-bold text-[9px]"
+                                  style={{ background: "linear-gradient(135deg,#075E54,#25D366)" }}
+                                >
+                                  {msg.sender?.avatar
+                                    ? <img src={msg.sender.avatar} alt={msg.sender.name} className="w-full h-full object-cover"
+                                        onError={e => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
+                                    : msg.sender?.name?.charAt(0).toUpperCase() || "?"}
+                                </div>
+                                <span className="text-xs font-semibold" style={{ color: "#075E54" }}>
+                                  {msg.sender?.name}
+                                </span>
+                              </div>
                             )}
                             <div
                               className="px-3.5 py-2 text-sm break-words leading-relaxed shadow-sm relative"
