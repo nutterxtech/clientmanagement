@@ -8,12 +8,11 @@ import {
 import { Input } from "@/components/ui/input";
 import {
   Send, CircleDot, MessageSquare, Headphones, ArrowLeft,
-  Users, Pin, Search, X, Reply,
+  Users, Pin, Search, X, ExternalLink, Reply,
 } from "lucide-react";
 import { formatTime } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
-import { ExternalLinkModal } from "@/components/shared/ExternalLinkModal";
 
 type Screen = "list" | "chat";
 
@@ -35,6 +34,55 @@ function renderContent(text: string, onLink: (url: string) => void) {
     ) : (
       <span key={i}>{part}</span>
     )
+  );
+}
+
+/* ── Iframe link preview modal ─────────────────────────────── */
+function LinkModal({ url, onClose }: { url: string; onClose: () => void }) {
+  return (
+    <AnimatePresence>
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        className="fixed inset-0 z-[200] flex items-center justify-center p-4"
+        style={{ background: "rgba(0,0,0,0.72)" }}
+        onClick={onClose}
+      >
+        <motion.div
+          initial={{ scale: 0.93, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          exit={{ scale: 0.93, opacity: 0 }}
+          transition={{ duration: 0.22, ease: "easeOut" }}
+          onClick={e => e.stopPropagation()}
+          className="w-full max-w-3xl h-[75vh] rounded-2xl overflow-hidden flex flex-col shadow-2xl"
+          style={{ background: "#fff" }}
+        >
+          {/* Modal header */}
+          <div className="flex items-center gap-3 px-4 py-3 shrink-0" style={{ background: "#075E54" }}>
+            <ExternalLink className="w-4 h-4 text-white shrink-0" />
+            <p className="text-white text-xs flex-1 truncate">{url}</p>
+            <a
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-white/80 hover:text-white text-xs underline shrink-0"
+            >
+              Open tab
+            </a>
+            <button onClick={onClose} className="ml-2 text-white/70 hover:text-white transition-colors">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          <iframe
+            src={url}
+            title="Link preview"
+            className="flex-1 w-full border-0"
+            sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+          />
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>
   );
 }
 
@@ -216,7 +264,7 @@ export default function Chat() {
   return (
     <div className="h-dvh flex flex-col pt-16">
       {/* Link preview modal */}
-      {previewUrl && <ExternalLinkModal url={previewUrl} onClose={() => setPreviewUrl(null)} />}
+      {previewUrl && <LinkModal url={previewUrl} onClose={() => setPreviewUrl(null)} />}
 
       <div className="flex-1 relative overflow-hidden min-h-0">
 

@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -6,7 +5,6 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { Navbar } from "@/components/layout/Navbar";
 import { AnimatePresence, motion } from "framer-motion";
 import { useAuth } from "@/hooks/use-auth";
-import { ExternalLinkModal } from "@/components/shared/ExternalLinkModal";
 import Home from "@/pages/Home";
 import Auth from "@/pages/Auth";
 import Dashboard from "@/pages/Dashboard";
@@ -198,32 +196,28 @@ function RoboBackground() {
 }
 
 /* ── WhatsApp community FAB ─────────────────────────────────── */
-const WA_GROUP = "https://chat.whatsapp.com/JsKmQMpECJMHyxucHquF15?mode=gi_t";
-
 function WhatsAppFAB() {
   const { isAuthenticated } = useAuth();
   const [location] = useLocation();
-  const [open, setOpen] = useState(false);
   const hidden = !isAuthenticated || location === "/admin" || location === "/auth" || location === "/" || location === "/chat";
   if (hidden) return null;
   return (
-    <>
-      <motion.button
-        onClick={() => setOpen(true)}
-        initial={{ opacity: 0, scale: 0.8, y: 20 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        transition={{ duration: 0.3 }}
-        whileHover={{ scale: 1.06 }}
-        whileTap={{ scale: 0.94 }}
-        className="fixed bottom-6 right-5 z-50 flex items-center gap-2.5 bg-[#25D366] hover:bg-[#1ebe5d] text-white px-4 py-3 rounded-2xl shadow-2xl shadow-[#25D366]/40 transition-colors duration-200"
-      >
-        <svg viewBox="0 0 24 24" className="w-5 h-5 fill-current shrink-0">
-          <path d={WA_PATH} />
-        </svg>
-        <span className="text-sm font-semibold leading-none">Community</span>
-      </motion.button>
-      {open && <ExternalLinkModal url={WA_GROUP} onClose={() => setOpen(false)} />}
-    </>
+    <motion.a
+      href="https://chat.whatsapp.com/JsKmQMpECJMHyxucHquF15?mode=gi_t"
+      target="_blank"
+      rel="noopener noreferrer"
+      initial={{ opacity: 0, scale: 0.8, y: 20 }}
+      animate={{ opacity: 1, scale: 1, y: 0 }}
+      transition={{ duration: 0.3 }}
+      whileHover={{ scale: 1.06 }}
+      whileTap={{ scale: 0.94 }}
+      className="fixed bottom-6 right-5 z-50 flex items-center gap-2.5 bg-[#25D366] hover:bg-[#1ebe5d] text-white px-4 py-3 rounded-2xl shadow-2xl shadow-[#25D366]/40 transition-colors duration-200"
+    >
+      <svg viewBox="0 0 24 24" className="w-5 h-5 fill-current shrink-0">
+        <path d={WA_PATH} />
+      </svg>
+      <span className="text-sm font-semibold leading-none">Community</span>
+    </motion.a>
   );
 }
 
