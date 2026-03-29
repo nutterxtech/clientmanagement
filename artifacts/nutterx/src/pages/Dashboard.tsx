@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { useGetMyRequests, useGetServices, useCreateRequest, useGetChats, getGetChatsQueryKey } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
@@ -754,19 +754,27 @@ function AdminPayRequestModal({ request, onClose, onPaid }: { request: any; onCl
 type ExtStep = "form" | "creating" | "instructions" | "submit" | "submitting" | "pending" | "success";
 
 function ExtendModal({ liveRequests, onClose, startAtPaste }: { liveRequests: any[]; onClose: () => void; startAtPaste?: boolean }) {
-  const [step, setStep]             = useState<ExtStep>("form");
-  const [selectedId, setSelectedId] = useState(liveRequests[0]?._id || "");
-  const [purpose, setPurpose]       = useState("");
-  const [error, setError]           = useState("");
-  const [extensionId, setExtId]     = useState("");
-  const [mpesaMsg, setMpesaMsg]     = useState("");
-  const [copied, setCopied]         = useState(false);
+  const [step, setStep]               = useState<ExtStep>("form");
+  const [selectedId, setSelectedId]   = useState(liveRequests[0]?._id || "");
+  const [purpose, setPurpose]         = useState("");
+  const [purposeShake, setPurposeShake] = useState(false);
+  const [error, setError]             = useState("");
+  const [extensionId, setExtId]       = useState("");
+  const [mpesaMsg, setMpesaMsg]       = useState("");
+  const [copied, setCopied]           = useState(false);
+  const purposeRef                    = useRef<HTMLTextAreaElement>(null);
   const { toast } = useToast();
 
   const selectedReq = liveRequests.find(r => r._id === selectedId);
 
   const handleCreate = async (goToPaste = false) => {
-    if (!selectedId || !purpose.trim()) { setError("Please select a service and describe your reason."); return; }
+    if (!purpose.trim()) {
+      setPurposeShake(true);
+      setTimeout(() => setPurposeShake(false), 600);
+      purposeRef.current?.focus();
+      purposeRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      return;
+    }
     setError(""); setStep("creating");
     try {
       const token = localStorage.getItem("nutterx_token");
@@ -890,10 +898,29 @@ function ExtendModal({ liveRequests, onClose, startAtPaste }: { liveRequests: an
                 </div>
                 {/* Reason */}
                 <div>
-                  <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground block mb-2">Reason for payment *</label>
-                  <textarea value={purpose} onChange={e => setPurpose(e.target.value)}
+                  <label className={cn(
+                    "text-xs font-semibold uppercase tracking-wider block mb-2 transition-colors",
+                    purposeShake ? "text-destructive" : "text-muted-foreground"
+                  )}>
+                    Reason for payment *
+                  </label>
+                  <textarea
+                    ref={purposeRef}
+                    value={purpose}
+                    onChange={e => { setPurpose(e.target.value); if (purposeShake) setPurposeShake(false); }}
                     placeholder="e.g. Extend deadline by 30 days, renew for next month, extra features…"
-                    className="w-full rounded-xl bg-secondary/50 border border-border p-3 text-sm min-h-[72px] focus:outline-none focus:border-primary/50 resize-none transition-colors" />
+                    className={cn(
+                      "w-full rounded-xl bg-secondary/50 border p-3 text-sm min-h-[80px] focus:outline-none resize-none transition-all",
+                      purposeShake
+                        ? "border-destructive ring-2 ring-destructive/30 animate-shake"
+                        : "border-border focus:border-primary/50"
+                    )}
+                  />
+                  {purposeShake && (
+                    <p className="text-destructive text-xs mt-1.5 flex items-center gap-1.5">
+                      <AlertCircle className="w-3.5 h-3.5 shrink-0" /> Please describe the reason for your payment.
+                    </p>
+                  )}
                 </div>
                 {error && (
                   <div className="flex items-center gap-2 text-destructive text-xs bg-destructive/10 border border-destructive/20 rounded-xl px-3 py-2.5">
