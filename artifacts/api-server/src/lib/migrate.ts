@@ -151,5 +151,8 @@ export async function runMigrations(): Promise<void> {
     )
   `);
 
+  await db.execute(sql`ALTER TABLE service_requests ADD COLUMN IF NOT EXISTS mpesa_amount NUMERIC`);
+  await db.execute(sql`ALTER TABLE deadline_payments ADD COLUMN IF NOT EXISTS mpesa_amount NUMERIC`);
+
   logger.info("Database migrations completed");
 }

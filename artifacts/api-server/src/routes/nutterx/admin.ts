@@ -228,6 +228,7 @@ router.get("/payments", authenticate, requireAdmin, async (_req: AuthRequest, re
     const serviceStatements = reqsWithUsers.map(r => ({
       _id: r.id, user: r.user, serviceName: r.serviceName,
       paymentAmount: r.paymentAmount ? Number(r.paymentAmount) : null,
+      mpesaAmount: r.mpesaAmount ? Number(r.mpesaAmount) : null,
       paymentCurrency: r.paymentCurrency || "KES",
       paymentStatus: r.paymentStatus, paymentRequired: r.paymentRequired,
       mpesaMessage: r.mpesaMessage ?? null, createdAt: r.createdAt,
@@ -236,6 +237,7 @@ router.get("/payments", authenticate, requireAdmin, async (_req: AuthRequest, re
     const extStatements = extsWithUsers.map(e => ({
       _id: e.id, user: e.user, serviceName: e.serviceName,
       paymentAmount: e.amount ? Number(e.amount) : null,
+      mpesaAmount: e.mpesaAmount ? Number(e.mpesaAmount) : null,
       paymentCurrency: e.currency || "KES",
       paymentStatus: e.paymentStatus, paymentRequired: true,
       mpesaMessage: e.mpesaMessage ?? null, createdAt: e.createdAt,
@@ -245,9 +247,14 @@ router.get("/payments", authenticate, requireAdmin, async (_req: AuthRequest, re
     const statements = [...serviceStatements, ...extStatements].sort(
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     );
-    const extRevenue  = extsWithUsers.reduce((s, e) => s + Number(e.amount || 0), 0);
-    const baseRevenue = serviceStatements.filter(s => s.paymentStatus === "paid").reduce((s, r) => s + Number(r.paymentAmount || 0), 0);
-    const pendingAmount = serviceStatements.filter(s => s.paymentStatus === "unpaid" || s.paymentStatus === "pending").reduce((s, r) => s + Number(r.paymentAmount || 0), 0);
+    // Revenue uses actual M-Pesa amount when available, falls back to expected amount
+    const extRevenue  = extsWithUsers.reduce((s, e) => s + Number(e.mpesaAmount || e.amount || 0), 0);
+    const baseRevenue = serviceStatements
+      .filter(s => s.paymentStatus === "paid")
+      .reduce((s, r) => s + Number(r.mpesaAmount ?? r.paymentAmount ?? 0), 0);
+    const pendingAmount = serviceStatements
+      .filter(s => s.paymentStatus === "pending")
+      .reduce((s, r) => s + Number(r.mpesaAmount ?? r.paymentAmount ?? 0), 0);
     res.json({ statements, totalRevenue: baseRevenue + extRevenue, pendingAmount, extensionRevenue: extRevenue, extensionCount: extRows.length });
   } catch { res.status(500).json({ message: "Failed to fetch payment statements" }); }
 });
