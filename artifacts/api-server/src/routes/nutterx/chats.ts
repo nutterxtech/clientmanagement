@@ -165,15 +165,15 @@ router.get("/:chatId/messages", authenticate, async (req: AuthRequest, res: Resp
       sender: { id: m.senderId2, _id: m.senderId2, name: m.senderName, email: m.senderEmail, avatar: m.senderAvatar },
     }));
 
-    // Fetch reply-to messages in one batch
+    // Fetch reply-to messages in one batch (use inArray — array params are tuples, not pg arrays)
     const replyToIds = paged.map((m: any) => m.replyToId).filter(Boolean) as string[];
     const replyMap: Record<string, any> = {};
     if (replyToIds.length) {
-      const replyRaw = rawRows(await db.execute(sql`
-        SELECT m.id, m.content, u.id AS "senderId", u.name AS "senderName"
-        FROM messages m INNER JOIN users u ON m.sender_id = u.id
-        WHERE m.id = ANY(${replyToIds}::uuid[])
-      `));
+      const replyRaw = await db
+        .select({ id: messages.id, content: messages.content, senderId: users.id, senderName: users.name })
+        .from(messages)
+        .innerJoin(users, eq(messages.senderId, users.id))
+        .where(inArray(messages.id, replyToIds));
       for (const r of replyRaw) {
         replyMap[r.id] = { _id: r.id, content: r.content, sender: { _id: r.senderId, name: r.senderName } };
       }
@@ -187,14 +187,16 @@ router.get("/:chatId/messages", authenticate, async (req: AuthRequest, res: Resp
     const viewedByMe = new Set<string>();
     if (viewOnceIds.length) {
       try {
+        // Build safe UUID array literal (UUIDs are hex+hyphens only, safe for sql.raw)
+        const uuidArr = sql.raw(`ARRAY[${viewOnceIds.map(id => `'${id}'`).join(",")}]::uuid[]`);
         const capRows = rawRows(await db.execute(sql`
-          SELECT id, caption FROM view_once_images WHERE id = ANY(${viewOnceIds}::uuid[])
+          SELECT id, caption FROM view_once_images WHERE id = ANY(${uuidArr})
         `));
         for (const r of capRows) captionMap[r.id] = r.caption ?? null;
 
         const viewedRows = rawRows(await db.execute(sql`
           SELECT image_id FROM view_once_views
-          WHERE image_id = ANY(${viewOnceIds}::uuid[]) AND viewer_id = ${userId}
+          WHERE image_id = ANY(${uuidArr}) AND viewer_id = ${userId}
         `));
         for (const r of viewedRows) viewedByMe.add(r.image_id);
       } catch { /* tables might not exist yet */ }
@@ -214,8 +216,9 @@ router.get("/:chatId/messages", authenticate, async (req: AuthRequest, res: Resp
         ? (m.senderId === userId ? false : viewedByMe.has(m.content))
         : undefined,
     })));
-  } catch {
-    res.status(500).json({ message: "Failed to fetch messages" });
+  } catch (e: any) {
+    console.error("[messages]", e?.message ?? e);
+    res.status(500).json({ message: "Failed to fetch messages", detail: e?.message });
   }
 });
 
