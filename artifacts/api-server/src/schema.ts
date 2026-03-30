@@ -93,6 +93,7 @@ export const serviceRequests = pgTable("service_requests", {
   paymentPhone:            text("payment_phone"),
   pesapalOrderTrackingId:  text("pesapal_order_tracking_id"),
   mpesaMessage:            text("mpesa_message"),
+  mpesaAmount:             numeric("mpesa_amount"),
   createdAt:               timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt:               timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -114,6 +115,7 @@ export const deadlinePayments = pgTable("deadline_payments", {
   adminMessage:           text("admin_message"),
   adminRequestedDays:     integer("admin_requested_days"),
   mpesaMessage:           text("mpesa_message"),
+  mpesaAmount:            numeric("mpesa_amount"),
   createdAt:              timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt:              timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

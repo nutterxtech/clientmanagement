@@ -32,6 +32,8 @@ export function initSocket(httpServer: HttpServer): SocketServer {
     const userId  = user.id;
 
     onlineUsers.set(userId, socket.id);
+    // Expose so REST routes can reach it via (req.app as any).io._onlineUsers
+    (io as any)._onlineUsers = onlineUsers;
     logger.info({ userId, socketId: socket.id }, "User connected");
     io.emit("user_online", { userId });
 

@@ -677,8 +677,34 @@ function ExtPayApproveModal({ ext, onClose, onDone }: { ext: any; onClose: () =>
             <div className="text-sm font-semibold">{ext.user?.name || "—"} <span className="text-muted-foreground font-normal text-xs">· {ext.user?.email}</span></div>
             <div className="text-sm">{ext.serviceName}</div>
             <div className="text-xs text-muted-foreground">{ext.purpose}</div>
-            <div className="text-base font-bold text-emerald-400">KES {(ext.amount || 0).toLocaleString()}</div>
             <div className="text-xs text-indigo-400">{ext.adminRequestedDays ? `+${ext.adminRequestedDays} days on approval` : "User-initiated extension"}</div>
+            {/* Expected vs. actual amount comparison */}
+            <div className="flex items-center gap-3 pt-1">
+              <div>
+                <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Expected</div>
+                <div className="text-base font-bold text-amber-400">KES {(ext.amount || 0).toLocaleString()}</div>
+              </div>
+              <div className="text-muted-foreground">→</div>
+              <div>
+                <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Received (from SMS)</div>
+                {ext.mpesaAmount != null ? (
+                  (() => {
+                    const diff = Math.abs((ext.mpesaAmount || 0) - (ext.amount || 0));
+                    const match = diff < 1;
+                    return (
+                      <div className={`text-base font-bold flex items-center gap-1.5 ${match ? "text-emerald-400" : "text-red-400"}`}>
+                        KES {Number(ext.mpesaAmount).toLocaleString()}
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${match ? "bg-emerald-500/15 text-emerald-400" : "bg-red-500/15 text-red-400"}`}>
+                          {match ? "✓ MATCH" : "✗ MISMATCH"}
+                        </span>
+                      </div>
+                    );
+                  })()
+                ) : (
+                  <div className="text-sm text-muted-foreground italic">Not parsed</div>
+                )}
+              </div>
+            </div>
           </div>
           {ext.mpesaMessage && (
             <div>
@@ -787,7 +813,33 @@ function ServicePayApproveModal({ statement, onClose, onDone }: { statement: any
           <div className="p-4 rounded-xl bg-secondary/40 border border-border space-y-1.5">
             <div className="text-sm font-semibold">{(statement.user as any)?.name || "Client"} <span className="text-muted-foreground font-normal text-xs">· {(statement.user as any)?.email}</span></div>
             <div className="text-sm">{statement.serviceName}</div>
-            <div className="text-base font-bold text-emerald-400">{statement.paymentCurrency} {(statement.paymentAmount || 0).toLocaleString()}</div>
+            {/* Expected vs. actual amount comparison */}
+            <div className="flex items-center gap-3 pt-1">
+              <div>
+                <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Expected</div>
+                <div className="text-base font-bold text-amber-400">{statement.paymentCurrency} {(statement.paymentAmount || 0).toLocaleString()}</div>
+              </div>
+              <div className="text-muted-foreground">→</div>
+              <div>
+                <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Received (from SMS)</div>
+                {statement.mpesaAmount != null ? (
+                  (() => {
+                    const diff = Math.abs((statement.mpesaAmount || 0) - (statement.paymentAmount || 0));
+                    const match = diff < 1;
+                    return (
+                      <div className={`text-base font-bold flex items-center gap-1.5 ${match ? "text-emerald-400" : "text-red-400"}`}>
+                        {statement.paymentCurrency} {Number(statement.mpesaAmount).toLocaleString()}
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${match ? "bg-emerald-500/15 text-emerald-400" : "bg-red-500/15 text-red-400"}`}>
+                          {match ? "✓ MATCH" : "✗ MISMATCH"}
+                        </span>
+                      </div>
+                    );
+                  })()
+                ) : (
+                  <div className="text-sm text-muted-foreground italic">Not parsed</div>
+                )}
+              </div>
+            </div>
           </div>
 
           {/* M-Pesa message */}

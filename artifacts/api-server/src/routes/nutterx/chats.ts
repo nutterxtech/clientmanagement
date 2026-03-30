@@ -245,7 +245,26 @@ router.post("/:chatId/messages", authenticate, async (req: AuthRequest, res: Res
     const [sender] = await db.select({ id: users.id, name: users.name, email: users.email, avatar: users.avatar })
       .from(users).where(eq(users.id, userId)).limit(1);
 
-    res.status(201).json({ ...msg, _id: msg.id, sender: { ...sender, _id: sender.id } });
+    const fullMsg = { ...msg, _id: msg.id, sender: { ...sender, _id: sender.id } };
+
+    // Emit via Socket.io so all participants get real-time updates
+    const io = (req.app as any).io;
+    if (io) {
+      // Broadcast to chat room (everyone currently viewing this chat)
+      io.to(chatId).emit("new_message", fullMsg);
+      // Also push chat_updated to each participant's personal socket (for badge + reorder)
+      const participants = await db.select({ userId: chatParticipants.userId })
+        .from(chatParticipants).where(eq(chatParticipants.chatId, chatId));
+      const onlineUsers: Map<string, string> = (io as any)._onlineUsers ?? new Map();
+      for (const p of participants) {
+        if (p.userId !== userId) {
+          const sid = onlineUsers.get(p.userId);
+          if (sid) io.to(sid).emit("chat_updated", { chatId, lastMessage: fullMsg });
+        }
+      }
+    }
+
+    res.status(201).json(fullMsg);
   } catch {
     res.status(500).json({ message: "Failed to send message" });
   }

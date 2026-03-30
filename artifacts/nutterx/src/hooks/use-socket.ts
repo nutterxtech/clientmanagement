@@ -4,6 +4,26 @@ import { useAuthStore } from './use-auth';
 import { useQueryClient } from '@tanstack/react-query';
 import { getGetChatMessagesQueryKey, getGetChatsQueryKey } from '@workspace/api-client-react';
 
+/** Optimistically update a chat's lastMessage (and optionally bump unreadCount) in the React Query cache. */
+function patchChatInList(
+  queryClient: ReturnType<typeof useQueryClient>,
+  chatId: string,
+  lastMessage: any,
+  bumpUnread: boolean,
+) {
+  queryClient.setQueryData(getGetChatsQueryKey(), (old: any) => {
+    if (!Array.isArray(old)) return old;
+    return old.map((chat: any) => {
+      if (chat._id !== chatId && chat.id !== chatId) return chat;
+      return {
+        ...chat,
+        lastMessage,
+        unreadCount: bumpUnread ? (chat.unreadCount || 0) + 1 : chat.unreadCount,
+      };
+    });
+  });
+}
+
 export function useSocket() {
   const token = useAuthStore((state) => state.token);
   const [isConnected, setIsConnected] = useState(false);
@@ -21,7 +41,6 @@ export function useSocket() {
     }
 
     if (!socketRef.current) {
-      // Connect to same origin
       socketRef.current = io(window.location.origin, {
         auth: { token },
         path: '/api/socket.io',
@@ -38,26 +57,30 @@ export function useSocket() {
         console.log('Socket disconnected');
       });
 
-      // Global event listeners
+      // ── new_message: update messages cache + move chat to top ──────────────
       socketRef.current.on('new_message', (message: any) => {
-        // Only do an optimistic cache insert when the payload is a full message
-        // object (has _id, type, content).  View-once events emit a lightweight
-        // { chatId, messageId } stub — inserting that into the cache causes the
-        // UUID to render as a plain string.  For those, just invalidate so the
-        // proper API fetch fires.
         if (message._id && message.content !== undefined && message.type !== undefined) {
+          // Insert into messages list
           queryClient.setQueryData(getGetChatMessagesQueryKey(message.chatId), (old: any) => {
             if (!old) return [message];
             if (old.some((m: any) => m._id === message._id)) return old;
             return [...old, message];
           });
+          // Update lastMessage in chat list immediately (no unread bump — user is in the room)
+          patchChatInList(queryClient, message.chatId, message, false);
         } else {
-          // Incomplete payload (e.g. view-once stub) — just invalidate so the
-          // messages endpoint is re-fetched with full, correct data.
+          // View-once stub — just invalidate messages
           queryClient.invalidateQueries({ queryKey: getGetChatMessagesQueryKey(message.chatId) });
         }
 
-        // Always refresh the chats list (unread count / last message)
+        // Background sync to keep server state consistent
+        queryClient.invalidateQueries({ queryKey: getGetChatsQueryKey() });
+      });
+
+      // ── chat_updated: recipient gets this when they are NOT in the room ─────
+      // Instantly show the badge + move chat to top, then sync in background.
+      socketRef.current.on('chat_updated', ({ chatId, lastMessage }: { chatId: string; lastMessage: any }) => {
+        patchChatInList(queryClient, chatId, lastMessage, true);
         queryClient.invalidateQueries({ queryKey: getGetChatsQueryKey() });
       });
 
@@ -71,7 +94,6 @@ export function useSocket() {
     }
 
     return () => {
-      // Don't disconnect on every re-render, only on unmount/token change
       if (socketRef.current) {
         socketRef.current.disconnect();
         socketRef.current = null;

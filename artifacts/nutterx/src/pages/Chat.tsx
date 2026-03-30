@@ -347,6 +347,8 @@ export default function Chat() {
   const [replyTo, setReplyTo]           = useState<{ id: string; content: string; senderName: string } | null>(null);
   const [swipeOffset, setSwipeOffset]   = useState<{ id: string; x: number } | null>(null);
   const swipeMeta = useRef<{ id: string; startX: number } | null>(null);
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [copyToast, setCopyToast] = useState(false);
   const [optimisticMsgs, setOptimisticMsgs] = useState<any[]>([]);
   const [cropModal, setCropModal] = useState<{ objectUrl: string } | null>(null);
   const [viewOnceFs, setViewOnceFs] = useState<{ imageData: string | null; mimeType: string; caption?: string | null; isSender: boolean } | null>(null);
@@ -528,15 +530,34 @@ export default function Chat() {
     }
   };
 
-  const handleMsgTouchStart = (msgId: string, e: React.TouchEvent) => {
+  const handleMsgTouchStart = (msgId: string, msg: any, e: React.TouchEvent) => {
     swipeMeta.current = { id: msgId, startX: e.touches[0]!.clientX };
+    if (longPressTimer.current) clearTimeout(longPressTimer.current);
+    longPressTimer.current = setTimeout(() => {
+      longPressTimer.current = null;
+      const text = msg.content as string | undefined;
+      if (text) {
+        navigator.clipboard.writeText(text).then(() => {
+          setCopyToast(true);
+          setTimeout(() => setCopyToast(false), 2000);
+        }).catch(() => {});
+      }
+    }, 500);
   };
   const handleMsgTouchMove = (e: React.TouchEvent) => {
     if (!swipeMeta.current) return;
     const delta = Math.max(0, Math.min(72, e.touches[0]!.clientX - swipeMeta.current.startX));
+    if (delta > 8 && longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
     setSwipeOffset({ id: swipeMeta.current.id, x: delta });
   };
   const handleMsgTouchEnd = (msg: any) => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
     const offset = swipeOffset?.x ?? 0;
     if (offset > 52) {
       setReplyTo({
@@ -663,6 +684,21 @@ export default function Chat() {
     <div className="fixed inset-0 flex flex-col overflow-hidden" style={{ paddingTop: 64 }}>
       {/* Link preview modal */}
       {previewUrl && <LinkModal url={previewUrl} onClose={() => setPreviewUrl(null)} />}
+
+      {/* Copy toast */}
+      <AnimatePresence>
+        {copyToast && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
+            className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[200] px-4 py-2 rounded-full text-white text-sm font-medium shadow-lg pointer-events-none"
+            style={{ background: "rgba(7,94,84,0.92)" }}
+          >
+            Message copied
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Crop modal */}
       <AnimatePresence>
@@ -1095,7 +1131,7 @@ export default function Chat() {
                           animate={{ opacity: msg._optimistic ? 0.72 : 1, y: 0, scale: 1 }}
                           transition={{ duration: 0.16, type: "spring", stiffness: 340, damping: 30 }}
                           className={cn("flex items-center gap-2 group", isOwn ? "justify-end" : "justify-start")}
-                          onTouchStart={e => handleMsgTouchStart(msg._id, e)}
+                          onTouchStart={e => handleMsgTouchStart(msg._id, msg, e)}
                           onTouchMove={handleMsgTouchMove}
                           onTouchEnd={() => handleMsgTouchEnd(msg)}
                         >
@@ -1138,7 +1174,7 @@ export default function Chat() {
                               </div>
                             )}
                             <div
-                              className="px-3.5 py-2 text-sm break-words leading-relaxed shadow-sm relative"
+                              className="px-3.5 py-2 text-sm break-words leading-relaxed shadow-sm relative w-fit max-w-full select-none"
                               style={{
                                 background: isOwn ? "#DCF8C6" : "#FFFFFF",
                                 color: "#111",

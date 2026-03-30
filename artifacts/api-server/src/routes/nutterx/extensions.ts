@@ -4,6 +4,13 @@ import { authenticate, requireAdmin, AuthRequest } from "../../middlewares/auth"
 import { getDb } from "../../lib/db";
 import { deadlinePayments, serviceRequests, users } from "../../schema";
 
+function parseMpesaAmount(msg: string): number | null {
+  const m = msg.match(/(?:KES|Ksh)\.?\s*([\d,]+(?:\.\d{1,2})?)/i);
+  if (!m) return null;
+  const val = parseFloat(m[1].replace(/,/g, ""));
+  return isNaN(val) ? null : val;
+}
+
 const router = Router();
 
 function fmtExt(e: any) {
@@ -63,11 +70,15 @@ router.post("/submit-mpesa/:id", authenticate, async (req: AuthRequest, res: Res
     const { mpesaMessage } = req.body;
     if (!mpesaMessage?.trim()) { res.status(400).json({ message: "M-Pesa message is required" }); return; }
 
+    const parsed = parseMpesaAmount(mpesaMessage.trim());
     await db.update(deadlinePayments).set({
-      paymentStatus: "pending", mpesaMessage: mpesaMessage.trim(), updatedAt: new Date(),
+      paymentStatus: "pending",
+      mpesaMessage: mpesaMessage.trim(),
+      ...(parsed !== null ? { mpesaAmount: String(parsed) } : {}),
+      updatedAt: new Date(),
     }).where(eq(deadlinePayments.id, ext.id));
 
-    res.json({ message: "Submitted for review" });
+    res.json({ message: "Submitted for review", parsedAmount: parsed });
   } catch { res.status(500).json({ message: "Failed to submit" }); }
 });
 
