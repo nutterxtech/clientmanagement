@@ -32,4 +32,4 @@ JWT_SECRET = "nutterx_super_secret_jwt_key_2024_production"
 
 [nix]
 channel = "stable-25_05"
-packages = ["chromium"]
+packages = ["chromium", "got"]
