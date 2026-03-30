@@ -1978,7 +1978,8 @@ export default function Admin() {
   const queryClient = useQueryClient();
   const [editingRequest, setEditingRequest] = useState<any>(null);
   const [requestingPaymentFor, setRequestingPaymentFor] = useState<any>(null);
-  const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
+  const [deletingUserId, setDeletingUserId]       = useState<string | null>(null);
+  const [deletingRequestId, setDeletingRequestId] = useState<string | null>(null);
   const [, navigate] = useLocation();
 
   const isAdminUrl = new URLSearchParams(window.location.search).get("admin") === "true";
@@ -2024,7 +2025,7 @@ export default function Admin() {
     if (activeTab === "groups") fetchGroups();
   }, [activeTab]);
 
-  const { data: requests, isLoading: reqLoading } = useAdminGetRequests({ query: { queryKey: getAdminGetRequestsQueryKey(), enabled: isAdmin } });
+  const { data: requests, isLoading: reqLoading, refetch: refetchRequests } = useAdminGetRequests({ query: { queryKey: getAdminGetRequestsQueryKey(), enabled: isAdmin } });
   const { data: users, isLoading: usersLoading, refetch: refetchUsers } = useAdminGetUsers({ query: { queryKey: getAdminGetUsersQueryKey(), enabled: isAdmin } });
   const { data: subscriptions } = useAdminGetSubscriptions({ query: { queryKey: getAdminGetSubscriptionsQueryKey(), enabled: isAdmin } });
   const updateRequestMutation = useAdminUpdateRequest();
@@ -2059,9 +2060,29 @@ export default function Admin() {
     }
   };
 
+  const handleDeleteRequest = async (reqId: string, reqName: string) => {
+    if (!confirm(`Delete cancelled request "${reqName}"? This cannot be undone.`)) return;
+    setDeletingRequestId(reqId);
+    try {
+      const token = localStorage.getItem("nutterx_token");
+      const res = await fetch(`/api/admin/requests/${reqId}`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) throw new Error();
+      toast({ title: `Request "${reqName}" deleted` });
+      refetchRequests();
+    } catch {
+      toast({ variant: "destructive", title: "Failed to delete request" });
+    } finally {
+      setDeletingRequestId(null);
+    }
+  };
+
   const handleExport = () => {
     if (!requests) return;
-    exportAsPNG(requests as any[]);
+    const isExpired = (r: any) => r.subscriptionEndsAt && new Date(r.subscriptionEndsAt) < new Date();
+    const reportRequests = (requests as any[]).filter(r =>
+      r.status === "completed" || r.status === "in_progress" || isExpired(r)
+    );
+    exportAsPNG(reportRequests);
   };
 
   if (!isAdmin && isAdminUrl) return <AdminLoginGate onSuccess={handleAdminLoginSuccess} />;
@@ -2112,47 +2133,90 @@ export default function Admin() {
             {/* REQUESTS */}
             {activeTab === "requests" && (
               <motion.div key="requests" variants={pageVariants} initial="initial" animate="animate" exit="exit" transition={{ duration: 0.2 }}>
-                <div className="flex items-center justify-between mb-5">
-                  <h2 className="text-lg font-bold">Service Requests</h2>
-                  <span className="text-sm text-muted-foreground">{requests?.length || 0} total</span>
-                </div>
                 {reqLoading ? (
                   <div className="flex justify-center py-16"><Loader2 className="w-7 h-7 animate-spin text-primary" /></div>
-                ) : !requests?.length ? (
-                  <p className="text-center text-muted-foreground py-12">No service requests yet.</p>
-                ) : (
-                  <div className="space-y-2.5">
-                    {requests.map((req, i) => (
-                      <motion.div key={req._id} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.04 }}
-                        className="p-4 bg-secondary/30 rounded-xl border border-border flex flex-col sm:flex-row sm:items-center gap-3 hover:bg-secondary/50 transition-colors">
-                        <div className="flex-1 min-w-0">
-                          <div className="font-semibold text-sm">{req.serviceName}</div>
-                          <div className="text-xs text-muted-foreground mt-0.5">{req.user?.name} · {req.user?.email} · {formatDate(req.createdAt!)}</div>
-                          {req.adminNotes && (
-                            <div className="text-xs text-primary/80 mt-1.5 bg-primary/5 rounded-lg px-2.5 py-1.5 border border-primary/10">{req.adminNotes}</div>
-                          )}
-                          {(req as any).paymentRequired && (
-                            <div className={`text-xs mt-1.5 inline-flex items-center gap-1 px-2 py-1 rounded-full border ${(req as any).paymentStatus === "paid" ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/20" : "text-amber-400 bg-amber-500/10 border-amber-500/20"}`}>
-                              {(req as any).paymentStatus === "paid" ? `✓ Paid KES ${(req as any).paymentAmount?.toLocaleString()}` : `⏳ Awaiting KES ${(req as any).paymentAmount?.toLocaleString()}`}
-                            </div>
-                          )}
+                ) : (() => {
+                  const isExpiredReq = (r: any) => r.subscriptionEndsAt && new Date(r.subscriptionEndsAt) < new Date();
+                  const active     = (requests as any[] || []).filter(r => r.status !== "cancelled");
+                  const cancelled  = (requests as any[] || []).filter(r => r.status === "cancelled");
+                  return (
+                    <>
+                      {/* ── Active / Completed / Expired report ── */}
+                      <div className="flex items-center justify-between mb-5">
+                        <h2 className="text-lg font-bold">Service Requests</h2>
+                        <span className="text-sm text-muted-foreground">{active.length} {active.length === 1 ? "entry" : "entries"}</span>
+                      </div>
+                      {!active.length ? (
+                        <p className="text-center text-muted-foreground py-8">No active requests yet.</p>
+                      ) : (
+                        <div className="space-y-2.5 mb-8">
+                          {active.map((req: any, i: number) => (
+                            <motion.div key={req._id} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.04 }}
+                              className="p-4 bg-secondary/30 rounded-xl border border-border flex flex-col sm:flex-row sm:items-center gap-3 hover:bg-secondary/50 transition-colors">
+                              <div className="flex-1 min-w-0">
+                                <div className="font-semibold text-sm">{req.serviceName}</div>
+                                <div className="text-xs text-muted-foreground mt-0.5">{req.user?.name} · {req.user?.email} · {formatDate(req.createdAt)}</div>
+                                {req.adminNotes && (
+                                  <div className="text-xs text-primary/80 mt-1.5 bg-primary/5 rounded-lg px-2.5 py-1.5 border border-primary/10">{req.adminNotes}</div>
+                                )}
+                                {req.paymentRequired && (
+                                  <div className={`text-xs mt-1.5 inline-flex items-center gap-1 px-2 py-1 rounded-full border ${req.paymentStatus === "paid" ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/20" : "text-amber-400 bg-amber-500/10 border-amber-500/20"}`}>
+                                    {req.paymentStatus === "paid" ? `✓ Paid KES ${req.paymentAmount?.toLocaleString()}` : `⏳ Awaiting KES ${req.paymentAmount?.toLocaleString()}`}
+                                  </div>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2 flex-wrap shrink-0">
+                                <StatusBadge status={isExpiredReq(req) ? "expired" : (req.status || "pending")} />
+                                {req.subscriptionEndsAt && <CountdownTimer endsAt={req.subscriptionEndsAt} compact />}
+                                <button onClick={() => setRequestingPaymentFor(req)}
+                                  className="px-3 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/25 text-amber-400 text-xs font-medium hover:bg-amber-500/20 transition-colors flex items-center gap-1.5">
+                                  <Banknote className="w-3.5 h-3.5" /> Request Payment
+                                </button>
+                                <button onClick={() => setEditingRequest(req)}
+                                  className="px-3 py-1.5 rounded-lg bg-primary/10 border border-primary/20 text-primary text-xs font-medium hover:bg-primary/20 transition-colors flex items-center gap-1.5">
+                                  <Calendar className="w-3.5 h-3.5" /> Manage
+                                </button>
+                              </div>
+                            </motion.div>
+                          ))}
                         </div>
-                        <div className="flex items-center gap-2 flex-wrap shrink-0">
-                          <StatusBadge status={req.status || "pending"} />
-                          {req.subscriptionEndsAt && <CountdownTimer endsAt={req.subscriptionEndsAt} compact />}
-                          <button onClick={() => setRequestingPaymentFor(req)}
-                            className="px-3 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/25 text-amber-400 text-xs font-medium hover:bg-amber-500/20 transition-colors flex items-center gap-1.5">
-                            <Banknote className="w-3.5 h-3.5" /> Request Payment
-                          </button>
-                          <button onClick={() => setEditingRequest(req)}
-                            className="px-3 py-1.5 rounded-lg bg-primary/10 border border-primary/20 text-primary text-xs font-medium hover:bg-primary/20 transition-colors flex items-center gap-1.5">
-                            <Calendar className="w-3.5 h-3.5" /> Manage
-                          </button>
-                        </div>
-                      </motion.div>
-                    ))}
-                  </div>
-                )}
+                      )}
+
+                      {/* ── Cancelled section ── */}
+                      {cancelled.length > 0 && (
+                        <>
+                          <div className="flex items-center gap-3 mb-3 mt-2">
+                            <div className="h-px flex-1 bg-red-500/20" />
+                            <span className="text-xs font-semibold text-red-400 uppercase tracking-wide">Cancelled ({cancelled.length})</span>
+                            <div className="h-px flex-1 bg-red-500/20" />
+                          </div>
+                          <div className="space-y-2">
+                            {cancelled.map((req: any, i: number) => (
+                              <motion.div key={req._id} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.04 }}
+                                className="p-3.5 bg-red-500/5 rounded-xl border border-red-500/15 flex flex-col sm:flex-row sm:items-center gap-3">
+                                <div className="flex-1 min-w-0">
+                                  <div className="font-semibold text-sm text-red-300">{req.serviceName}</div>
+                                  <div className="text-xs text-muted-foreground mt-0.5">{req.user?.name} · {req.user?.email} · {formatDate(req.createdAt)}</div>
+                                  {req.adminNotes && (
+                                    <div className="text-xs text-muted-foreground/70 mt-1 italic">{req.adminNotes}</div>
+                                  )}
+                                </div>
+                                <button
+                                  onClick={() => handleDeleteRequest(req._id, req.serviceName)}
+                                  disabled={deletingRequestId === req._id}
+                                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500/10 border border-red-500/25 text-red-400 text-xs font-medium hover:bg-red-500/20 transition-colors disabled:opacity-50 shrink-0"
+                                >
+                                  {deletingRequestId === req._id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                                  Delete
+                                </button>
+                              </motion.div>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </>
+                  );
+                })()}
               </motion.div>
             )}
 

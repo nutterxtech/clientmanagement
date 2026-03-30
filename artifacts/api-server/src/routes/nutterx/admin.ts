@@ -100,6 +100,18 @@ router.put("/requests/:id", authenticate, requireAdmin, async (req: AuthRequest,
   } catch { res.status(500).json({ message: "Failed to update request" }); }
 });
 
+router.delete("/requests/:id", authenticate, requireAdmin, async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const db = getDb();
+    const [row] = await db.select({ id: serviceRequests.id, status: serviceRequests.status })
+      .from(serviceRequests).where(eq(serviceRequests.id, req.params["id"]!)).limit(1);
+    if (!row) { res.status(404).json({ message: "Request not found" }); return; }
+    if (row.status !== "cancelled") { res.status(400).json({ message: "Only cancelled requests can be deleted" }); return; }
+    await db.delete(serviceRequests).where(eq(serviceRequests.id, row.id));
+    res.json({ ok: true });
+  } catch { res.status(500).json({ message: "Failed to delete request" }); }
+});
+
 router.get("/subscriptions", authenticate, requireAdmin, async (_req: AuthRequest, res: Response): Promise<void> => {
   try {
     const db = getDb();
