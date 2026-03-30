@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { useAuthStore } from './use-auth';
 import { useQueryClient } from '@tanstack/react-query';
-import { getGetChatMessagesQueryKey, getGetChatsQueryKey } from '@workspace/api-client-react';
+import { getGetChatMessagesQueryKey, getGetChatsQueryKey, getGetMeQueryKey } from '@workspace/api-client-react';
+import { playNotificationSound, requestNotificationPermission, showBrowserNotification } from '@/lib/notifications';
 
 /** Optimistically update a chat's lastMessage (and optionally bump unreadCount) in the React Query cache. */
 function patchChatInList(
@@ -49,16 +50,21 @@ export function useSocket() {
 
       socketRef.current.on('connect', () => {
         setIsConnected(true);
-        console.log('Socket connected');
+        // Request browser notification permission on first connect (post user-gesture)
+        requestNotificationPermission();
       });
 
       socketRef.current.on('disconnect', () => {
         setIsConnected(false);
-        console.log('Socket disconnected');
       });
 
       // ── new_message: update messages cache + move chat to top ──────────────
       socketRef.current.on('new_message', (message: any) => {
+        // Identify current user from cache
+        const me = queryClient.getQueryData<any>(getGetMeQueryKey());
+        const myId = me?._id ?? me?.id;
+        const isOwn = myId && (message.senderId === myId || message.sender?._id === myId || message.sender?.id === myId);
+
         if (message._id && message.content !== undefined && message.type !== undefined) {
           // Insert into messages list
           queryClient.setQueryData(getGetChatMessagesQueryKey(message.chatId), (old: any) => {
@@ -68,6 +74,16 @@ export function useSocket() {
           });
           // Update lastMessage in chat list immediately (no unread bump — user is in the room)
           patchChatInList(queryClient, message.chatId, message, false);
+
+          // Sound + browser notification for incoming messages only
+          if (!isOwn) {
+            playNotificationSound();
+            const senderName = message.sender?.name ?? 'New message';
+            const body = message.type === 'view_once_image'
+              ? '📷 Photo'
+              : message.content?.slice(0, 100);
+            showBrowserNotification({ title: senderName, body });
+          }
         } else {
           // View-once stub — just invalidate messages
           queryClient.invalidateQueries({ queryKey: getGetChatMessagesQueryKey(message.chatId) });
@@ -77,11 +93,18 @@ export function useSocket() {
         queryClient.invalidateQueries({ queryKey: getGetChatsQueryKey() });
       });
 
-      // ── chat_updated: recipient gets this when they are NOT in the room ─────
-      // Instantly show the badge + move chat to top, then sync in background.
+      // ── chat_updated: recipient gets this when NOT in the room ─────────────
+      // These are always from someone else — always play sound + notification.
       socketRef.current.on('chat_updated', ({ chatId, lastMessage }: { chatId: string; lastMessage: any }) => {
         patchChatInList(queryClient, chatId, lastMessage, true);
         queryClient.invalidateQueries({ queryKey: getGetChatsQueryKey() });
+
+        playNotificationSound();
+        const senderName = lastMessage?.sender?.name ?? 'New message';
+        const body = lastMessage?.type === 'view_once_image'
+          ? '📷 Photo'
+          : lastMessage?.content?.slice(0, 100);
+        showBrowserNotification({ title: senderName, body });
       });
 
       socketRef.current.on('user_online', ({ userId }: { userId: string }) => {
