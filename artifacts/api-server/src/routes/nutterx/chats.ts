@@ -3,6 +3,7 @@ import { eq, and, inArray, ne, sql, count } from "drizzle-orm";
 import { getDb } from "../../lib/db";
 import { chats, chatParticipants, messages, users } from "../../schema";
 import { authenticate, requireAdmin, AuthRequest } from "../../middlewares/auth";
+import { sendPushToUsers } from "../../lib/push";
 
 const router = Router();
 
@@ -247,22 +248,31 @@ router.post("/:chatId/messages", authenticate, async (req: AuthRequest, res: Res
 
     const fullMsg = { ...msg, _id: msg.id, sender: { ...sender, _id: sender.id } };
 
+    // Fetch all other participants once — used for both socket and push
+    const participants = await db.select({ userId: chatParticipants.userId })
+      .from(chatParticipants).where(eq(chatParticipants.chatId, chatId));
+    const recipientIds = participants.map(p => p.userId).filter(id => id !== userId);
+
     // Emit via Socket.io so all participants get real-time updates
     const io = (req.app as any).io;
     if (io) {
-      // Broadcast to chat room (everyone currently viewing this chat)
       io.to(chatId).emit("new_message", fullMsg);
-      // Also push chat_updated to each participant's personal socket (for badge + reorder)
-      const participants = await db.select({ userId: chatParticipants.userId })
-        .from(chatParticipants).where(eq(chatParticipants.chatId, chatId));
       const onlineUsers: Map<string, string> = (io as any)._onlineUsers ?? new Map();
-      for (const p of participants) {
-        if (p.userId !== userId) {
-          const sid = onlineUsers.get(p.userId);
-          if (sid) io.to(sid).emit("chat_updated", { chatId, lastMessage: fullMsg });
-        }
+      for (const id of recipientIds) {
+        const sid = onlineUsers.get(id);
+        if (sid) io.to(sid).emit("chat_updated", { chatId, lastMessage: fullMsg });
       }
     }
+
+    // Web Push — fire-and-forget for recipients who are offline
+    const senderName = sender?.name ?? "New message";
+    sendPushToUsers(recipientIds, {
+      title: senderName,
+      body: fullMsg.content?.slice(0, 120) ?? "",
+      icon: sender?.avatar ?? undefined,
+      tag: `chat-${chatId}`,
+      data: { chatId },
+    }).catch(() => {});
 
     res.status(201).json(fullMsg);
   } catch {

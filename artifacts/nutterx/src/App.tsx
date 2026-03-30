@@ -5,6 +5,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { Navbar } from "@/components/layout/Navbar";
 import { AnimatePresence, motion } from "framer-motion";
 import { useAuth } from "@/hooks/use-auth";
+import { usePushNotifications } from "@/hooks/use-push";
 import Home from "@/pages/Home";
 import Auth from "@/pages/Auth";
 import Dashboard from "@/pages/Dashboard";
@@ -224,6 +225,7 @@ function WhatsAppFAB() {
 /* ── Router ─────────────────────────────────────────────────── */
 function Router() {
   const [location] = useLocation();
+  usePushNotifications();
   return (
     <div className="flex flex-col min-h-screen relative">
       <RoboBackground />

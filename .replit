@@ -29,6 +29,9 @@ timeoutMs = 20000
 
 [userenv.shared]
 JWT_SECRET = "nutterx_super_secret_jwt_key_2024_production"
+VAPID_PUBLIC_KEY = "BBKscCUiqwCh2L5R2bPGCt-BSGKJaXY5_AjKkccjNKgYcBxJJT7FXC15lrwDLra9WZwTw9YGqek7TesVj4oW2M8"
+VAPID_PRIVATE_KEY = "JTZyaZxl7UORzulIcH0Xk_DxKnKwlxZV3LGbuRByOqY"
+VAPID_EMAIL = "mailto:admin@nutterx.com"
 
 [nix]
 channel = "stable-25_05"
