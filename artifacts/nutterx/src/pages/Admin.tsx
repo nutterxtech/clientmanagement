@@ -824,14 +824,17 @@ function ServicePayApproveModal({ statement, onClose, onDone }: { statement: any
                 <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Received (from SMS)</div>
                 {statement.mpesaAmount != null ? (
                   (() => {
-                    const diff = Math.abs((statement.mpesaAmount || 0) - (statement.paymentAmount || 0));
-                    const match = diff < 1;
+                    const hasExpected = statement.paymentAmount != null && statement.paymentAmount > 0;
+                    const diff = hasExpected ? Math.abs((statement.mpesaAmount || 0) - (statement.paymentAmount || 0)) : 0;
+                    const match = !hasExpected || diff < 1;
                     return (
                       <div className={`text-base font-bold flex items-center gap-1.5 ${match ? "text-emerald-400" : "text-red-400"}`}>
                         {statement.paymentCurrency} {Number(statement.mpesaAmount).toLocaleString()}
-                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${match ? "bg-emerald-500/15 text-emerald-400" : "bg-red-500/15 text-red-400"}`}>
-                          {match ? "✓ MATCH" : "✗ MISMATCH"}
-                        </span>
+                        {hasExpected && (
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${match ? "bg-emerald-500/15 text-emerald-400" : "bg-red-500/15 text-red-400"}`}>
+                            {match ? "✓ MATCH" : "✗ MISMATCH"}
+                          </span>
+                        )}
                       </div>
                     );
                   })()
@@ -991,7 +994,7 @@ function PaymentsPanel() {
                     </span>
                   </td>
                   <td className="px-4 py-3">
-                    <span className="font-bold text-sm text-emerald-400">{s.paymentCurrency} {(s.paymentAmount || 0).toLocaleString()}</span>
+                    <span className="font-bold text-sm text-emerald-400">{s.paymentCurrency} {(s.mpesaAmount ?? s.paymentAmount ?? 0).toLocaleString()}</span>
                   </td>
                   <td className="px-4 py-3">
                     <span className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${statusColor[s.paymentStatus] || "text-muted-foreground bg-secondary border-border"}`}>
