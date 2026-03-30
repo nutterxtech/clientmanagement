@@ -5,6 +5,7 @@ import { verifyToken } from "./middlewares/auth";
 import { getDb } from "./lib/db";
 import { users, chats, chatParticipants, messages } from "./schema";
 import { logger } from "./lib/logger";
+import { sendPushToUsers } from "./lib/push";
 
 const onlineUsers = new Map<string, string>();
 
@@ -70,17 +71,27 @@ export function initSocket(httpServer: HttpServer): SocketServer {
         const msgWithSender = { ...msg, _id: msg.id, sender: { ...user, _id: user.id } };
         io.to(chatId).emit("new_message", msgWithSender);
 
-        // Notify other participants
+        // Notify other participants via socket + push
         const participants = await db.select({ userId: chatParticipants.userId })
           .from(chatParticipants).where(eq(chatParticipants.chatId, chatId));
+        const recipientIds: string[] = [];
         for (const p of participants) {
           if (p.userId !== userId) {
+            recipientIds.push(p.userId);
             const targetSocketId = onlineUsers.get(p.userId);
             if (targetSocketId) {
               io.to(targetSocketId).emit("chat_updated", { chatId, lastMessage: msgWithSender });
             }
           }
         }
+        // Web Push for offline recipients
+        sendPushToUsers(recipientIds, {
+          title: user.name,
+          body: content.trim().slice(0, 120),
+          icon: user.avatar ?? undefined,
+          tag: `chat-${chatId}`,
+          data: { chatId },
+        }).catch(() => {});
       } catch (err) {
         logger.error({ err }, "Error sending message");
       }
